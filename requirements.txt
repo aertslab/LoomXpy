@@ -1,0 +1,7 @@
+loompy
+networkx
+numpy
+pandas
+pyscenic
+scikit-learn>=0.22.2
+
