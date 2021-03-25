@@ -1,10 +1,8 @@
+"""Top-level package for LoomXpy."""
 
-from pkg_resources import get_distribution, DistributionNotFound
-try:
-    __version__ = get_distribution("loomxpy").version
-except DistributionNotFound:
-    pass
-del DistributionNotFound, get_distribution
+__author__ = """Maxime De Waegeneer"""
+__email__ = 'mdewaegeneer@gmail.com'
+__version__ = '0.1.0'
 
-from .loomxpy import SCopeLoom
+
 
