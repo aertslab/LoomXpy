@@ -1,3 +1,4 @@
+import abc
 from typing import MutableMapping
 from enum import Enum
 
@@ -23,10 +24,15 @@ class Mode(S7):
         """
         self._mode_type = mode_type
         self._data_matrix = data_matrix
+        self._feature_attrs = FeatureAttributes(mode=self)
 
     @property
     def X(self):
         return self._data_matrix
+
+    @property
+    def f(self):
+        return self._feature_attrs
 
 
 class Modes(MutableMapping[str, object], metaclass=WithInitHook):
@@ -44,11 +50,11 @@ class Modes(MutableMapping[str, object], metaclass=WithInitHook):
 
     def __iter__(self):
         """"""
-        raise Exception("Iterator not implemented.")
+        raise NotImplementedError
 
     def __len__(self):
         """"""
-        raise Exception("Length not implemented.")
+        raise NotImplementedError
 
     def __delitem__(self, name) -> None:
         """"""
@@ -151,3 +157,107 @@ Got {type(value)} but expecting either:
     def __repr__(self) -> str:
         _mode_keys = f"{', '.join(self._keys)}" if len(self._keys) > 0 else "none"
         return f"Modalities: {_mode_keys}"
+
+
+class Axis(Enum):
+    OBSERVATIONS = 0
+    FEATURES = 1
+
+
+class AttributeType(Enum):
+    ANNOTATION = 0
+
+
+class Attribute:
+    def __init__(
+        self, key: str, mode_type: ModeType, attr_type: AttributeType, axis: Axis, data
+    ):
+        """"""
+        self.key = key
+        self.mode_type = mode_type
+        self.attr_type = attr_type
+        self.axis = axis
+        self.data = data
+
+    def __repr__(self):
+        """"""
+        return self.data.__repr__()
+
+
+class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
+    def __init__(self, mode):
+        """"""
+        self._keys = []
+        self._mode = mode
+        self._mode_type = mode._mode_type if mode is not None else ModeType.NONE
+
+    def __delitem__(self, key):
+        """"""
+        self._keys.remove(key)
+        delattr(self, key)
+
+    def __getitem__(self, key):
+        """"""
+        return getattr(self, key).data
+
+    def __iter__(self):
+        """"""
+        return iter(AttributesIterator(self))
+
+    def __len__(self):
+        """"""
+        return len(self.keys)
+
+    def _add_item(self, key, value):
+        self._keys.append(key)
+        super().__setattr__(key, value)
+
+    @abc.abstractclassmethod
+    def __setitem__(self, key, value):
+        """"""
+        raise NotImplementedError
+
+
+class AttributesIterator:
+
+    """Class to implement an iterator of Attributes """
+
+    def __init__(self, attrs: Attributes):
+        self._attrs = attrs
+
+    def __iter__(self):
+        self.n = 0
+        return self
+
+    def __next__(self):
+        if self.n <= len(o=self._attrs):
+            self.n += 1
+            current_key = self._attrs._keys[self.n]
+            return current_key, self._attrs[current_key]
+        else:
+            raise StopIteration
+
+
+class FeatureAttributes(Attributes):
+    def __init__(self, mode):
+        """"""
+        super().__init__(mode=mode)
+
+    def __setattr__(self, name, value):
+        if not hasattr(self, "_initialized"):
+            print(f"DEBUG: constructor call: set attr with name {name}")
+            super().__setattr__(name, value)
+        else:
+            self.__setitem__(name=name, value=value)
+
+    def __setitem__(self, name, value):
+        """"""
+
+        value = Attribute(
+            key=name,
+            mode_type=self._mode_type,
+            attr_type=AttributeType.ANNOTATION,  # This should be inferred
+            axis=Axis.FEATURES,
+            data=value,
+        )
+        super()._add_item(key=name, value=value)

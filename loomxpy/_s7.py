@@ -9,21 +9,10 @@ class S7Main(abc.ABC):
 
 
 class S7SideCars(abc.ABC):
-    pass
-    # @property
-    # @abc.abstractproperty
-    # def f(self):
-    #     raise NotImplementedError()
-
-    # @property
-    # @abc.abstractproperty
-    # def o(self):
-    #     raise NotImplementedError()
-
-    # @property
-    # @abc.abstractproperty
-    # def g(self):
-    #     raise NotImplementedError()
+    @property
+    @abc.abstractproperty
+    def f(self):
+        raise NotImplementedError()
 
 
 class S7(S7Main, S7SideCars):
