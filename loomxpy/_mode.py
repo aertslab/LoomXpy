@@ -1,4 +1,5 @@
 import abc
+import warnings
 from typing import MutableMapping
 from enum import Enum
 
@@ -25,6 +26,9 @@ class Mode(S7):
         self._mode_type = mode_type
         self._data_matrix = data_matrix
         self._feature_attrs = FeatureAttributes(mode=self)
+        self._feature_annotation_attrs_proxy: FeatureAnnotationAttributes = (
+            FeatureAnnotationAttributes(mode=self)
+        )
 
     @property
     def X(self):
@@ -33,6 +37,10 @@ class Mode(S7):
     @property
     def f(self):
         return self._feature_attrs
+
+    @property
+    def annotations(self):
+        return self._feature_annotation_attrs_proxy
 
 
 class Modes(MutableMapping[str, object], metaclass=WithInitHook):
@@ -185,7 +193,7 @@ class Attribute:
 
 
 class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
-    def __init__(self, mode):
+    def __init__(self, mode: Mode):
         """"""
         self._keys = []
         self._mode = mode
@@ -206,7 +214,7 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
 
     def __len__(self):
         """"""
-        return len(self.keys)
+        return len(self._keys)
 
     def _add_item(self, key, value):
         self._keys.append(key)
@@ -230,7 +238,7 @@ class AttributesIterator:
         return self
 
     def __next__(self):
-        if self.n <= len(o=self._attrs):
+        if self.n <= len(self._attrs._keys):
             self.n += 1
             current_key = self._attrs._keys[self.n]
             return current_key, self._attrs[current_key]
@@ -290,4 +298,45 @@ class FeatureAttributes(Attributes):
             axis=Axis.FEATURES,
             data=value,
         )
+        super()._add_item(key=name, value=value)
+
+
+class FeatureAnnotationAttributes(FeatureAttributes):
+    def __init__(self, mode):
+        """"""
+        super().__init__(mode=mode)
+
+    def __getattribute__(self, key):
+        """"""
+        if key in super().__getattribute__("_keys"):
+            return self._mode._feature_attrs[key]
+        return super().__getattribute__(key)
+
+    def __setattr__(self, name, value) -> None:
+        if not hasattr(self, "_initialized"):
+            print(f"DEBUG: constructor call: set attr with name {name}")
+            super().__setattr__(name, value)
+        else:
+            self.__setitem__(name=name, value=value)
+
+    def _validate_value(self, value):
+        super()._validate_value(value=value)
+
+    def __setitem__(self, name, value):
+        """"""
+        super()._validate_key(key=name)
+        self._validate_value(value=value)
+
+        # Convert to Categorical
+        warnings.warn(f"Converting {name} annotation to categorical type...")
+        value = value.astype("category")
+
+        value = Attribute(
+            key=name,
+            mode_type=self._mode_type,
+            attr_type=AttributeType.ANNOTATION,
+            axis=Axis.FEATURES,
+            data=value,
+        )
+        self._mode._feature_attrs._add_item(key=name, value=value)
         super()._add_item(key=name, value=value)
