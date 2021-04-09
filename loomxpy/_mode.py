@@ -194,11 +194,11 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
     def __delitem__(self, key):
         """"""
         self._keys.remove(key)
-        delattr(self, key)
+        super().__delattr__(key)
 
     def __getitem__(self, key):
         """"""
-        return getattr(self, key).data
+        return super().__getattribute__(key).data
 
     def __iter__(self):
         """"""
@@ -264,6 +264,12 @@ class FeatureAttributes(Attributes):
             raise Exception(
                 f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Index of the given pandas.core.frame.DataFrame does not fully match with the DataMatrix of mode."
             )
+
+    def __getattribute__(self, key):
+        """"""
+        if key in super().__getattribute__("_keys"):
+            return super().__getattribute__(key).data
+        return super().__getattribute__(key)
 
     def __setattr__(self, name, value):
         if not hasattr(self, "_initialized"):
