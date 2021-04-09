@@ -267,10 +267,10 @@ class FeatureAttributes(Attributes):
                 f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Expects a pandas.core.frame.DataFrame."
             )
         # Check if all observations from the given value are present in the DataMatrix of this mode
-        _observations = self._mode.X._observation_names
-        if not all(np.in1d(value.index.astype(str), _observations)):
+        _features = self._mode.X._feature_names
+        if not all(np.in1d(value.index.astype(str), _features)):
             raise Exception(
-                f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Index of the given pandas.core.frame.DataFrame does not fully match with the DataMatrix of mode."
+                f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Index of the given pandas.core.frame.DataFrame does not fully match the features in DataMatrix of mode."
             )
 
     def __getattribute__(self, key):
