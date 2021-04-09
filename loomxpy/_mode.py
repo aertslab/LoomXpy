@@ -193,6 +193,19 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
         self._mode = mode
         self._mode_type = mode._mode_type if mode is not None else ModeType.NONE
 
+    def __getattribute__(self, key):
+        """"""
+        if key in super().__getattribute__("_keys"):
+            return super().__getattribute__(key).data
+        return super().__getattribute__(key)
+
+    def __setattr__(self, name, value):
+        if not hasattr(self, "_initialized"):
+            print(f"DEBUG: constructor call: set attr with name {name}")
+            super().__setattr__(name, value)
+        else:
+            self.__setitem__(name=name, value=value)
+
     def __delitem__(self, key):
         """"""
         self._keys.remove(key)
@@ -215,9 +228,25 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
         super().__setattr__(key, value)
 
     @abc.abstractclassmethod
-    def __setitem__(self, key, value):
+    def __setitem__(self, name, value):
         """"""
         raise NotImplementedError
+
+    def _validate_key(self, key):
+        if key.startswith("_"):
+            raise Exception(
+                f"Cannot add attribute with key {key}. Not a valid key. Expects key not to start with an underscore ('_')."
+            )
+        if not isinstance(key, str):
+            raise Exception(
+                f"Cannot add attribute with key of type ({type(key).__name__}) to {type(self).__name__}. Not a valid key. Expects key of type str."
+            )
+
+    def _validate_value(self, value):
+        if not isinstance(value, pd.core.frame.DataFrame):
+            raise Exception(
+                f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Expects a pandas.core.frame.DataFrame."
+            )
 
 
 class AttributesIterator:
@@ -240,45 +269,28 @@ class AttributesIterator:
             raise StopIteration
 
 
+##########################################
+# FEATURES
+##########################################
+
+
 class FeatureAttributes(Attributes):
-    def __init__(self, mode):
+    def __init__(self, mode: Mode):
         """"""
         super().__init__(mode=mode)
 
     def _validate_key(self, key: str):
-        if key.startswith("_"):
-            raise Exception(
-                f"Cannot add attribute with key {key}. Not a valid key. Expects key not to start with an underscore ('_')."
-            )
-        if not isinstance(key, str):
-            raise Exception(
-                f"Cannot add attribute with key of type ({type(key).__name__}) to {type(self).__name__}. Not a valid key. Expects key of type str."
-            )
+        super()._validate_key(key=key)
 
     def _validate_value(self, value):
-        if not isinstance(value, pd.core.frame.DataFrame):
-            raise Exception(
-                f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Expects a pandas.core.frame.DataFrame."
-            )
+        # Generic validation
+        super()._validate_value(value=value)
         # Check if all observations from the given value are present in the DataMatrix of this mode
         _features = self._mode.X._feature_names
         if not all(np.in1d(value.index.astype(str), _features)):
             raise Exception(
                 f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Index of the given pandas.core.frame.DataFrame does not fully match the features in DataMatrix of mode."
             )
-
-    def __getattribute__(self, key):
-        """"""
-        if key in super().__getattribute__("_keys"):
-            return super().__getattribute__(key).data
-        return super().__getattribute__(key)
-
-    def __setattr__(self, name, value):
-        if not hasattr(self, "_initialized"):
-            print(f"DEBUG: constructor call: set attr with name {name}")
-            super().__setattr__(name, value)
-        else:
-            self.__setitem__(name=name, value=value)
 
     def __setitem__(self, name, value):
         """"""
@@ -309,13 +321,6 @@ class FeatureAnnotationAttributes(FeatureAttributes):
         if key in super().__getattribute__("_keys"):
             return self._mode._feature_attrs[key]
         return super().__getattribute__(key)
-
-    def __setattr__(self, name, value) -> None:
-        if not hasattr(self, "_initialized"):
-            print(f"DEBUG: constructor call: set attr with name {name}")
-            super().__setattr__(name, value)
-        else:
-            self.__setitem__(name=name, value=value)
 
     def _validate_value(self, value):
         super()._validate_value(value=value)
