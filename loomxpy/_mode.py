@@ -26,9 +26,7 @@ class Mode(S7):
         self._mode_type = mode_type
         self._data_matrix = data_matrix
         self._feature_attrs = FeatureAttributes(mode=self)
-        self._feature_annotation_attrs_proxy: FeatureAnnotationAttributes = (
-            FeatureAnnotationAttributes(mode=self)
-        )
+        self._fa_annotations = FeatureAnnotationAttributes(mode=self)
 
     @property
     def X(self):
@@ -37,10 +35,6 @@ class Mode(S7):
     @property
     def f(self):
         return self._feature_attrs
-
-    @property
-    def annotations(self):
-        return self._feature_annotation_attrs_proxy
 
 
 class Modes(MutableMapping[str, object], metaclass=WithInitHook):
@@ -299,6 +293,10 @@ class FeatureAttributes(Attributes):
             data=value,
         )
         super()._add_item(key=name, value=value)
+
+    @property
+    def annotations(self):
+        return self._mode._fa_annotations
 
 
 class FeatureAnnotationAttributes(FeatureAttributes):
