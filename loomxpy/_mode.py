@@ -243,6 +243,28 @@ class FeatureAttributes(Attributes):
         """"""
         super().__init__(mode=mode)
 
+    def _validate_key(self, key: str):
+        if key.startswith("_"):
+            raise Exception(
+                f"Cannot add attribute with key {key}. Not a valid key. Expects key not to start with an underscore ('_')."
+            )
+        if not isinstance(key, str):
+            raise Exception(
+                f"Cannot add attribute with key of type ({type(key).__name__}) to {type(self).__name__}. Not a valid key. Expects key of type str."
+            )
+
+    def _validate_value(self, value):
+        if not isinstance(value, pd.core.frame.DataFrame):
+            raise Exception(
+                f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Expects a pandas.core.frame.DataFrame."
+            )
+        # Check if all observations from the given value are present in the DataMatrix of this mode
+        _observations = self._mode.X._observation_names
+        if not all(np.in1d(value.index.astype(str), _observations)):
+            raise Exception(
+                f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Index of the given pandas.core.frame.DataFrame does not fully match with the DataMatrix of mode."
+            )
+
     def __setattr__(self, name, value):
         if not hasattr(self, "_initialized"):
             print(f"DEBUG: constructor call: set attr with name {name}")
@@ -252,6 +274,8 @@ class FeatureAttributes(Attributes):
 
     def __setitem__(self, name, value):
         """"""
+        self._validate_key(key=name)
+        self._validate_value(value=value)
 
         value = Attribute(
             key=name,
