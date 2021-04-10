@@ -12,6 +12,11 @@ from ._hooks import WithInitHook
 from ._matrix import DataMatrix
 
 
+##########################################
+# MODES                                  #
+##########################################
+
+
 class ModeType(Enum):
     NONE = "_"
     RNA = "rna"
@@ -25,8 +30,12 @@ class Mode(S7):
         """
         self._mode_type = mode_type
         self._data_matrix = data_matrix
+        # Features
         self._feature_attrs = FeatureAttributes(mode=self)
         self._fa_annotations = FeatureAnnotationAttributes(mode=self)
+        # Observations
+        self._observation_attrs = ObservationAttributes(mode=self)
+        self._oa_annotations = ObservationAnnotationAttributes(mode=self)
 
     @property
     def X(self):
@@ -35,6 +44,10 @@ class Mode(S7):
     @property
     def f(self):
         return self._feature_attrs
+
+    @property
+    def o(self):
+        return self._observation_attrs
 
 
 class Modes(MutableMapping[str, object], metaclass=WithInitHook):
@@ -161,6 +174,11 @@ Got {type(value)} but expecting either:
         return f"Modalities: {_mode_keys}"
 
 
+##########################################
+# ATTRIBUTES                             #
+##########################################
+
+
 class Axis(Enum):
     OBSERVATIONS = 0
     FEATURES = 1
@@ -270,7 +288,7 @@ class AttributesIterator:
 
 
 ##########################################
-# FEATURES
+# FEATURE ATTRIBUTES                     #
 ##########################################
 
 
@@ -300,7 +318,7 @@ class FeatureAttributes(Attributes):
         value = Attribute(
             key=name,
             mode_type=self._mode_type,
-            attr_type=AttributeType.ANNOTATION,  # This should be inferred
+            attr_type=AttributeType.ANNOTATION,  # TODO: This should be inferred
             axis=Axis.FEATURES,
             data=value,
         )
@@ -317,7 +335,9 @@ class FeatureAnnotationAttributes(FeatureAttributes):
         super().__init__(mode=mode)
 
     def __getattribute__(self, key):
-        """"""
+        """
+        This is a proxy. Override __getattribute__ of Attributes class
+        """
         if key in super().__getattribute__("_keys"):
             return self._mode._feature_attrs[key]
         return super().__getattribute__(key)
@@ -342,4 +362,82 @@ class FeatureAnnotationAttributes(FeatureAttributes):
             data=value,
         )
         self._mode._feature_attrs._add_item(key=name, value=value)
+        super()._add_item(key=name, value=value)
+
+
+##########################################
+# OBSERVATION ATTRIBUTES                 #
+##########################################
+
+
+class ObservationAttributes(Attributes):
+    def __init__(self, mode: Mode):
+        """"""
+        super().__init__(mode=mode)
+
+    def _validate_key(self, key: str):
+        super()._validate_key(key=key)
+
+    def _validate_value(self, value):
+        super()._validate_value(value=value)
+
+        # Check if all observations from the given value are present in the DataMatrix of this mode
+        _observations = self._mode.X._observation_names
+        if not all(np.in1d(value.index.astype(str), _observations)):
+            raise Exception(
+                f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Index of the given pandas.core.frame.DataFrame does not fully match the observations in DataMatrix of mode."
+            )
+
+    def __setitem__(self, name, value):
+        """"""
+        self._validate_key(key=name)
+        self._validate_value(value=value)
+
+        value = Attribute(
+            key=name,
+            mode_type=self._mode_type,
+            attr_type=AttributeType.ANNOTATION,  # TODO: This should be inferred
+            axis=Axis.OBSERVATIONS,
+            data=value,
+        )
+        super()._add_item(key=name, value=value)
+
+    @property
+    def annotations(self):
+        return self._mode._oa_annotations
+
+
+class ObservationAnnotationAttributes(ObservationAttributes):
+    def __init__(self, mode):
+        """"""
+        super().__init__(mode=mode)
+
+    def __getattribute__(self, key):
+        """
+        This is a proxy. Override __getattribute__ of Attributes class
+        """
+        if key in super().__getattribute__("_keys"):
+            return self._mode._observation_attrs[key]
+        return super().__getattribute__(key)
+
+    def _validate_value(self, value):
+        super()._validate_value(value=value)
+
+    def __setitem__(self, name, value):
+        """"""
+        super()._validate_key(key=name)
+        self._validate_value(value=value)
+
+        # Convert to Categorical
+        warnings.warn(f"Converting {name} annotation to categorical type...")
+        value = value.astype("category")
+
+        value = Attribute(
+            key=name,
+            mode_type=self._mode_type,
+            attr_type=AttributeType.ANNOTATION,
+            axis=Axis.OBSERVATIONS,
+            data=value,
+        )
+        self._mode._observation_attrs._add_item(key=name, value=value)
         super()._add_item(key=name, value=value)

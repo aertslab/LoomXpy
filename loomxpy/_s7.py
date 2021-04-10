@@ -14,6 +14,11 @@ class S7SideCars(abc.ABC):
     def f(self):
         raise NotImplementedError()
 
+    @property
+    @abc.abstractproperty
+    def o(self):
+        raise NotImplementedError()
+
 
 class S7(S7Main, S7SideCars):
     pass
