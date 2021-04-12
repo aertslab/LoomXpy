@@ -20,7 +20,6 @@ from ._matrix import DataMatrix
 class ModeType(Enum):
     NONE = "_"
     RNA = "rna"
-    ATAC = "atac"
 
 
 class Mode(S7):
@@ -29,6 +28,7 @@ class Mode(S7):
         constructor for Mode
         """
         self._mode_type = mode_type
+        # Data Matrix
         self._data_matrix = data_matrix
         # Features
         self._feature_attrs = FeatureAttributes(mode=self)
@@ -75,7 +75,7 @@ class Modes(MutableMapping[str, object], metaclass=WithInitHook):
         """"""
         delattr(self, name)
 
-    def __getitem__(self, name) -> object:
+    def __getitem__(self, name) -> Mode:
         """"""
         return getattr(self, name)
 
