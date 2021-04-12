@@ -194,11 +194,19 @@ class Attribute:
         self, key: str, mode_type: ModeType, attr_type: AttributeType, axis: Axis, data
     ):
         """"""
-        self.key = key
-        self.mode_type = mode_type
-        self.attr_type = attr_type
-        self.axis = axis
-        self.data = data
+        self._key = key
+        self._mode_type = mode_type
+        self._attr_type = attr_type
+        self._axis = axis
+        self._data = data
+
+    @property
+    def key(self):
+        return self._key
+
+    @property
+    def data(self):
+        return self._data
 
     def __repr__(self):
         """"""
@@ -257,7 +265,7 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
         """"""
         return len(self._keys)
 
-    def _add_item(self, key: str, attr_type: AttributeType, attr_value):
+    def _add_item(self, key: str, attr_type: AttributeType, attr_value) -> Attribute:
         self._keys.append(key)
         value = Attribute(
             key=key,
@@ -267,6 +275,10 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
             data=attr_value,
         )
         super().__setattr__(key, value)
+        return value
+
+    def _add_item_by_ref(self, attr: Attribute):
+        super().__setattr__(attr.key, attr.data)
 
     @abc.abstractclassmethod
     def __setitem__(self, name, value):
@@ -364,12 +376,10 @@ class FeatureAnnotationAttributes(FeatureAttributes):
         warnings.warn(f"Converting {name} annotation to categorical type...")
         value = value.astype("category")
 
-        self._mode._feature_attrs._add_item(
+        _attr = self._mode._feature_attrs._add_item(
             key=name, attr_value=value, attr_type=AttributeType.ANNOTATION
         )
-        super()._add_item(
-            key=name, attr_value=value, attr_type=AttributeType.ANNOTATION
-        )
+        super()._add_item_by_ref(attr=_attr)
 
 
 
@@ -451,9 +461,7 @@ class ObservationAnnotationAttributes(ObservationAttributes):
         warnings.warn(f"Converting {name} annotation to categorical type...")
         value = value.astype("category")
 
-        self._mode._observation_attrs._add_item(
+        _attr = self._mode._observation_attrs._add_item(
             key=name, attr_value=value, attr_type=AttributeType.ANNOTATION
         )
-        super()._add_item(
-            key=name, attr_value=value, attr_type=AttributeType.ANNOTATION
-        )
+        super()._add_item_by_ref(attr=_attr)
