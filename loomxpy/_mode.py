@@ -33,6 +33,7 @@ class Mode(S7):
         # Features
         self._feature_attrs = FeatureAttributes(mode=self)
         self._fa_annotations = FeatureAnnotationAttributes(mode=self)
+        self._fa_metrics = FeatureMetricAttributes(mode=self)
         # Observations
         self._observation_attrs = ObservationAttributes(mode=self)
         self._oa_annotations = ObservationAnnotationAttributes(mode=self)
@@ -358,6 +359,10 @@ class FeatureAttributes(Attributes):
     def annotations(self):
         return self._mode._fa_annotations
 
+    @property
+    def metrics(self):
+        return self._mode._fa_metrics
+
 
 class FeatureAnnotationAttributes(FeatureAttributes):
     def __init__(self, mode):
@@ -382,28 +387,46 @@ class FeatureAnnotationAttributes(FeatureAttributes):
         super()._add_item_by_ref(attr=_attr)
 
 
+class FeatureMetricAttributes(FeatureAttributes):
+    def __init__(self, mode):
+        """"""
+        super().__init__(mode=mode, is_proxy=True)
+        self._force_conversion_to_numeric = False
 
     def _validate_value(self, value):
         super()._validate_value(value=value)
 
-    def __setitem__(self, name, value):
+    def __setitem__(self, name: str, value: pd.core.frame.DataFrame):
         """"""
         super()._validate_key(key=name)
         self._validate_value(value=value)
 
-        # Convert to Categorical
-        warnings.warn(f"Converting {name} annotation to categorical type...")
-        value = value.astype("category")
+        # Do some checks and processing for attribute of type METRIC
+        if not self._force_conversion_to_numeric and not pd.api.types.is_numeric_dtype(
+            arr_or_dtype=value.values
+        ):
+            _dtype = value.infer_objects().dtypes[0]
+            raise Exception(f"Expects value to be numeric but its dtype is {_dtype}")
 
-        value = Attribute(
-            key=name,
-            mode_type=self._mode_type,
-            attr_type=AttributeType.ANNOTATION,
-            axis=Axis.FEATURES,
-            data=value,
+        if self._force_conversion_to_numeric:
+            # Convert to metric
+            warnings.warn(f"Converting {name} metric to numeric type...")
+            value = pd.to_numeric(value)
+
+        _attr = self._mode._feature_attrs._add_item(
+            key=name, attr_value=value, attr_type=AttributeType.METRIC
         )
-        self._mode._feature_attrs._add_item(key=name, value=value)
-        super()._add_item(key=name, value=value)
+        super()._add_item_by_ref(attr=_attr)
+
+    @property
+    def force(self):
+        return self._force_conversion_to_numeric
+
+    @force.setter
+    def force(self, force_conversion_to_numeric: bool):
+        if not isinstance(force_conversion_to_numeric, bool):
+            raise Exception(f"Expects a bool dtype.")
+        self._force_conversion_to_numeric = force_conversion_to_numeric
 
 
 ##########################################
