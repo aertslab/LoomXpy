@@ -328,7 +328,84 @@ class AttributesIterator:
 
 
 ##########################################
-# FEATURE ATTRIBUTES                     #
+# ATTRIBUTE TYPES                        #
+##########################################
+
+
+class AnnotationAttributes(Attributes):
+    def __init__(self, mode: Mode, axis: Axis, is_proxy: bool = False):
+        """"""
+        super().__init__(mode=mode, axis=axis, is_proxy=is_proxy)
+        self._force_conversion_to_categorical = False
+
+    def _validate_value(self, value: pd.core.frame.DataFrame):
+        if __DEBUG__:
+            print(f"DEBUG: _validate_value ({type(self).__name__})")
+        # Do some checks and processing for attribute of type ANNOTATION
+        if (
+            not self._force_conversion_to_categorical
+            and not pd.api.types.is_categorical_dtype(arr_or_dtype=value.values)
+            and not pd.api.types.is_bool_dtype(arr_or_dtype=value.values)
+        ):
+            _dtype = value.infer_objects().dtypes[0]
+            raise Exception(
+                f"Expects value to be categorical or bool but its dtype is {_dtype}"
+            )
+
+    def _normalize_value(self, name: str, value: pd.core.frame.DataFrame):
+        if self._force_conversion_to_categorical:
+            # Convert to Categorical
+            warnings.warn(f"Converting {name} annotation to categorical type...")
+            return value.astype("category")
+        return value
+
+    @property
+    def force(self):
+        return self._force_conversion_to_categorical
+
+    @force.setter
+    def force(self, force_conversion_to_categorical: bool):
+        if not isinstance(force_conversion_to_categorical, bool):
+            raise Exception(f"Expects a bool dtype value.")
+        self._force_conversion_to_categorical = force_conversion_to_categorical
+
+
+class MetricAttributes(Attributes):
+    def __init__(self, mode: Mode, axis: Axis, is_proxy: bool = False):
+        """"""
+        super().__init__(mode=mode, axis=axis, is_proxy=is_proxy)
+        self._force_conversion_to_numeric = False
+
+    def _validate_value(self, value: pd.core.frame.DataFrame):
+        if __DEBUG__:
+            print(f"DEBUG: _validate_value ({type(self).__name__})")
+        # Do some checks and processing for attribute of type METRIC
+        if not self._force_conversion_to_numeric and not pd.api.types.is_numeric_dtype(
+            arr_or_dtype=value.values
+        ):
+            _dtype = value.infer_objects().dtypes[0]
+            raise Exception(f"Expects value to be numeric but its dtype is {_dtype}")
+
+    def _normalize_value(self, name: str, value: pd.core.frame.DataFrame):
+        if self._force_conversion_to_numeric:
+            # Convert to metric
+            warnings.warn(f"Converting {name} metric to numeric type...")
+            return pd.to_numeric(value)
+        return value
+
+    @property
+    def force(self):
+        return self._force_conversion_to_numeric
+
+    @force.setter
+    def force(self, force_conversion_to_numeric: bool):
+        if not isinstance(force_conversion_to_numeric, bool):
+            raise Exception(f"Expects a bool dtype value.")
+        self._force_conversion_to_numeric = force_conversion_to_numeric
+
+
+##########################################
+# AXIS ATTRIBUTES                        #
 ##########################################
 
 
@@ -341,6 +418,8 @@ class FeatureAttributes(Attributes):
         super()._validate_key(key=key)
 
     def _validate_value(self, value):
+        if __DEBUG__:
+            print(f"DEBUG: _validate_value ({type(self).__name__})")
         # Generic validation
         super()._validate_value(value=value)
         # Check if all observations from the given value are present in the DataMatrix of this mode
@@ -368,22 +447,16 @@ class FeatureAttributes(Attributes):
         return self._mode._fa_metrics
 
 
-class FeatureAnnotationAttributes(FeatureAttributes):
-    def __init__(self, mode):
+class FeatureAnnotationAttributes(FeatureAttributes, AnnotationAttributes):
+    def __init__(self, mode: Mode):
         """"""
         super().__init__(mode=mode, is_proxy=True)
-
-    def _validate_value(self, value):
-        super()._validate_value(value=value)
 
     def __setitem__(self, name, value):
         """"""
         super()._validate_key(key=name)
-        self._validate_value(value=value)
-
-        # Convert to Categorical
-        warnings.warn(f"Converting {name} annotation to categorical type...")
-        value = value.astype("category")
+        super()._validate_value(value=value)
+        value = super()._normalize_value(name=name, value=value)
 
         _attr = self._mode._feature_attrs._add_item(
             key=name, attr_value=value, attr_type=AttributeType.ANNOTATION
@@ -391,46 +464,21 @@ class FeatureAnnotationAttributes(FeatureAttributes):
         super()._add_item_by_ref(attr=_attr)
 
 
-class FeatureMetricAttributes(FeatureAttributes):
+class FeatureMetricAttributes(FeatureAttributes, MetricAttributes):
     def __init__(self, mode):
         """"""
         super().__init__(mode=mode, is_proxy=True)
-        self._force_conversion_to_numeric = False
-
-    def _validate_value(self, value):
-        super()._validate_value(value=value)
 
     def __setitem__(self, name: str, value: pd.core.frame.DataFrame):
         """"""
         super()._validate_key(key=name)
-        self._validate_value(value=value)
-
-        # Do some checks and processing for attribute of type METRIC
-        if not self._force_conversion_to_numeric and not pd.api.types.is_numeric_dtype(
-            arr_or_dtype=value.values
-        ):
-            _dtype = value.infer_objects().dtypes[0]
-            raise Exception(f"Expects value to be numeric but its dtype is {_dtype}")
-
-        if self._force_conversion_to_numeric:
-            # Convert to metric
-            warnings.warn(f"Converting {name} metric to numeric type...")
-            value = pd.to_numeric(value)
+        super()._validate_value(value=value)
+        value = super()._normalize_value(name=name, value=value)
 
         _attr = self._mode._feature_attrs._add_item(
             key=name, attr_value=value, attr_type=AttributeType.METRIC
         )
         super()._add_item_by_ref(attr=_attr)
-
-    @property
-    def force(self):
-        return self._force_conversion_to_numeric
-
-    @force.setter
-    def force(self, force_conversion_to_numeric: bool):
-        if not isinstance(force_conversion_to_numeric, bool):
-            raise Exception(f"Expects a bool dtype.")
-        self._force_conversion_to_numeric = force_conversion_to_numeric
 
 
 ##########################################
@@ -442,9 +490,6 @@ class ObservationAttributes(Attributes):
     def __init__(self, mode: Mode, is_proxy: bool = False):
         """"""
         super().__init__(mode=mode, axis=Axis.OBSERVATIONS, is_proxy=is_proxy)
-
-    def _validate_key(self, key: str):
-        super()._validate_key(key=key)
 
     def _validate_value(self, value):
         super()._validate_value(value=value)
@@ -458,7 +503,7 @@ class ObservationAttributes(Attributes):
 
     def __setitem__(self, name, value):
         """"""
-        self._validate_key(key=name)
+        super()._validate_key(key=name)
         self._validate_value(value=value)
 
         # TODO: Attribute type should be inferred here
@@ -471,22 +516,16 @@ class ObservationAttributes(Attributes):
         return self._mode._oa_annotations
 
 
-class ObservationAnnotationAttributes(ObservationAttributes):
+class ObservationAnnotationAttributes(ObservationAttributes, AnnotationAttributes):
     def __init__(self, mode):
         """"""
         super().__init__(mode=mode, is_proxy=True)
 
-    def _validate_value(self, value):
-        super()._validate_value(value=value)
-
     def __setitem__(self, name, value):
         """"""
         super()._validate_key(key=name)
-        self._validate_value(value=value)
-
-        # Convert to Categorical
-        warnings.warn(f"Converting {name} annotation to categorical type...")
-        value = value.astype("category")
+        super()._validate_value(value=value)
+        value = super()._normalize_value(name=name, value=value)
 
         _attr = self._mode._observation_attrs._add_item(
             key=name, attr_value=value, attr_type=AttributeType.ANNOTATION
