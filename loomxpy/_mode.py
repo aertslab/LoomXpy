@@ -171,7 +171,8 @@ Got {type(value)} but expecting either:
             raise Exception("Invalid type of the given data natrix.")
 
         _mode = Mode(mode_type=ModeType(_key), data_matrix=_data_matrix)
-        self._keys.append(_key)
+        if _key not in self._keys:
+            self._keys.append(_key)
         super().__setattr__(_key, _mode)
 
     def __repr__(self) -> str:
@@ -272,7 +273,8 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
         return len(self._keys)
 
     def _add_item(self, key: str, attr_type: AttributeType, attr_value) -> Attribute:
-        self._keys.append(key)
+        if _key not in self._keys:
+            self._keys.append(_key)
         value = Attribute(
             key=key,
             mode_type=self._mode_type,
