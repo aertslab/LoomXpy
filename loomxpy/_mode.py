@@ -38,6 +38,7 @@ class Mode(S7):
         # Observations
         self._observation_attrs = ObservationAttributes(mode=self)
         self._oa_annotations = ObservationAnnotationAttributes(mode=self)
+        self._oa_metrics = ObservationMetricAttributes(mode=self)
 
     @property
     def X(self):
@@ -410,7 +411,7 @@ class MetricAttributes(Attributes):
 
 
 ##########################################
-# AXIS ATTRIBUTES                        #
+# AXIS ATTRIBUTES - FEATURES             #
 ##########################################
 
 
@@ -487,7 +488,7 @@ class FeatureMetricAttributes(FeatureAttributes, MetricAttributes):
 
 
 ##########################################
-# OBSERVATION ATTRIBUTES                 #
+# AXIS ATTRIBUTES - OBSERVATIONS         #
 ##########################################
 
 
@@ -520,6 +521,10 @@ class ObservationAttributes(Attributes):
     def annotations(self):
         return self._mode._oa_annotations
 
+    @property
+    def metrics(self):
+        return self._mode._oa_metrics
+
 
 class ObservationAnnotationAttributes(ObservationAttributes, AnnotationAttributes):
     def __init__(self, mode):
@@ -534,5 +539,22 @@ class ObservationAnnotationAttributes(ObservationAttributes, AnnotationAttribute
 
         _attr = self._mode._observation_attrs._add_item(
             key=name, attr_value=value, attr_type=AttributeType.ANNOTATION
+        )
+        super()._add_item_by_ref(attr=_attr)
+
+
+class ObservationMetricAttributes(ObservationAttributes, MetricAttributes):
+    def __init__(self, mode):
+        """"""
+        super().__init__(mode=mode, is_proxy=True)
+
+    def __setitem__(self, name: str, value: pd.core.frame.DataFrame):
+        """"""
+        super()._validate_key(key=name)
+        super()._validate_value(value=value)
+        value = super()._normalize_value(name=name, value=value)
+
+        _attr = self._mode._observation_attrs._add_item(
+            key=name, attr_value=value, attr_type=AttributeType.METRIC
         )
         super()._add_item_by_ref(attr=_attr)
