@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 from scipy import sparse
 
+from loomxpy import __DEBUG__
 from ._s7 import S7
 from ._hooks import WithInitHook
 from ._matrix import DataMatrix
@@ -59,6 +60,7 @@ class Modes(MutableMapping[str, object], metaclass=WithInitHook):
 
     def __setattr__(self, name, value):
         if not hasattr(self, "_initialized"):
+            if __DEBUG__:
             print(f"DEBUG: constructor call: set attr with name {name}")
             super().__setattr__(name, value)
         else:
@@ -140,8 +142,9 @@ Got {type(value)} but expecting either:
 
     def __setitem__(self, name, value) -> None:
         """"""
+        if __DEBUG__:
         print(f"DEBUG: instance call: set attr with name {name}")
-        print(f"adding new {name} mode")
+        print(f"INFO: adding new {name} mode")
         _key = self._validate_key(key=name)
         Modes._validate_value(value=value)
 
@@ -244,6 +247,7 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
 
     def __setattr__(self, name, value):
         if not hasattr(self, "_initialized"):
+            if __DEBUG__:
             print(f"DEBUG: constructor call: set attr with name {name}")
             super().__setattr__(name, value)
         else:
