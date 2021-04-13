@@ -61,7 +61,7 @@ class Modes(MutableMapping[str, object], metaclass=WithInitHook):
     def __setattr__(self, name, value):
         if not hasattr(self, "_initialized"):
             if __DEBUG__:
-            print(f"DEBUG: constructor call: set attr with name {name}")
+                print(f"DEBUG: constructor call: set attr with name {name}")
             super().__setattr__(name, value)
         else:
             self.__setitem__(name=name, value=value)
@@ -143,7 +143,7 @@ Got {type(value)} but expecting either:
     def __setitem__(self, name, value) -> None:
         """"""
         if __DEBUG__:
-        print(f"DEBUG: instance call: set attr with name {name}")
+            print(f"DEBUG: instance call: set attr with name {name}")
         print(f"INFO: adding new {name} mode")
         _key = self._validate_key(key=name)
         Modes._validate_value(value=value)
@@ -229,9 +229,9 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
     def __getattribute__(self, key):
         """"""
         if not super().__getattribute__("_is_proxy"):
-        if key in super().__getattribute__("_keys"):
-            return super().__getattribute__(key).data
-        return super().__getattribute__(key)
+            if key in super().__getattribute__("_keys"):
+                return super().__getattribute__(key).data
+            return super().__getattribute__(key)
         else:
             """
             This is a proxy. Override __getattribute__ of Attributes class
@@ -248,7 +248,7 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
     def __setattr__(self, name, value):
         if not hasattr(self, "_initialized"):
             if __DEBUG__:
-            print(f"DEBUG: constructor call: set attr with name {name}")
+                print(f"DEBUG: constructor call: set attr with name {name}")
             super().__setattr__(name, value)
         else:
             self.__setitem__(name=name, value=value)
@@ -304,6 +304,11 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
         if not isinstance(value, pd.core.frame.DataFrame):
             raise Exception(
                 f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Expects a pandas.core.frame.DataFrame."
+            )
+
+        if value.shape[1] > 1:
+            raise Exception(
+                f"Cannot add attribute of shape {value.shape[1]}. Currently, allows only {type(value).__name__} with maximally 1 feature (i.e.: column)."
             )
 
 
