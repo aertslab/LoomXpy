@@ -273,8 +273,8 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
         return len(self._keys)
 
     def _add_item(self, key: str, attr_type: AttributeType, attr_value) -> Attribute:
-        if _key not in self._keys:
-            self._keys.append(_key)
+        if key not in self._keys:
+            self._keys.append(key)
         value = Attribute(
             key=key,
             mode_type=self._mode_type,
