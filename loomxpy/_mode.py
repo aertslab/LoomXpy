@@ -35,10 +35,11 @@ class Mode(S7):
         self._feature_attrs = FeatureAttributes(mode=self)
         self._fa_annotations = FeatureAnnotationAttributes(mode=self)
         self._fa_metrics = FeatureMetricAttributes(mode=self)
-        # Observations
+        # # Observations
         self._observation_attrs = ObservationAttributes(mode=self)
         self._oa_annotations = ObservationAnnotationAttributes(mode=self)
         self._oa_metrics = ObservationMetricAttributes(mode=self)
+        self._oa_embeddings = ObservationEmbeddingAttributes(mode=self)
 
     @property
     def X(self):
@@ -193,6 +194,7 @@ class Axis(Enum):
 class AttributeType(Enum):
     ANNOTATION = 0
     METRIC = 1
+    EMBEDDING = 2
 
 
 class Attribute:
@@ -220,13 +222,14 @@ class Attribute:
 
 
 class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
-    def __init__(self, mode: Mode, axis: Axis, is_proxy: bool = False):
+    def __init__(self, mode: Mode, axis: Axis, is_proxy: bool = False, **kwargs):
         """"""
         self._keys = []
         self._mode = mode
         self._mode_type = mode._mode_type if mode is not None else ModeType.NONE
         self._axis = axis
         self._is_proxy = is_proxy
+        self._is_multi = True if "is_multi" in kwargs and kwargs["is_multi"] else False
 
     def __getattribute__(self, key):
         """"""
@@ -309,7 +312,7 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
                 f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Expects a pandas.core.frame.DataFrame."
             )
 
-        if value.shape[1] > 1:
+        if not self._is_multi and value.shape[1] > 1:
             raise Exception(
                 f"Cannot add attribute of shape {value.shape[1]}. Currently, allows only {type(value).__name__} with maximally 1 feature (i.e.: column)."
             )
@@ -341,9 +344,9 @@ class AttributesIterator:
 
 
 class AnnotationAttributes(Attributes):
-    def __init__(self, mode: Mode, axis: Axis, is_proxy: bool = False):
+    def __init__(self, mode: Mode, axis: Axis, is_proxy: bool = False, **kwargs):
         """"""
-        super().__init__(mode=mode, axis=axis, is_proxy=is_proxy)
+        super().__init__(mode=mode, axis=axis, is_proxy=is_proxy, **kwargs)
         self._force_conversion_to_categorical = False
 
     def _validate_value(self, value: pd.core.frame.DataFrame):
@@ -495,9 +498,9 @@ class FeatureMetricAttributes(FeatureAttributes, MetricAttributes):
 
 
 class ObservationAttributes(Attributes):
-    def __init__(self, mode: Mode, is_proxy: bool = False):
+    def __init__(self, mode: Mode, is_proxy: bool = False, **kwargs):
         """"""
-        super().__init__(mode=mode, axis=Axis.OBSERVATIONS, is_proxy=is_proxy)
+        super().__init__(mode=mode, axis=Axis.OBSERVATIONS, is_proxy=is_proxy, **kwargs)
 
     def _validate_value(self, value):
         super()._validate_value(value=value)
@@ -526,6 +529,10 @@ class ObservationAttributes(Attributes):
     @property
     def metrics(self):
         return self._mode._oa_metrics
+
+    @property
+    def embeddings(self):
+        return self._mode._oa_embeddings
 
 
 class ObservationAnnotationAttributes(ObservationAttributes, AnnotationAttributes):
@@ -558,5 +565,21 @@ class ObservationMetricAttributes(ObservationAttributes, MetricAttributes):
 
         _attr = self._mode._observation_attrs._add_item(
             key=name, attr_value=value, attr_type=AttributeType.METRIC
+        )
+        super()._add_item_by_ref(attr=_attr)
+
+
+class ObservationEmbeddingAttributes(ObservationAttributes):
+    def __init__(self, mode):
+        """"""
+        super().__init__(mode=mode, is_proxy=True, is_multi=True)
+
+    def __setitem__(self, name: str, value: pd.core.frame.DataFrame):
+        """"""
+        super()._validate_key(key=name)
+        super()._validate_value(value=value)
+
+        _attr = self._mode._observation_attrs._add_item(
+            key=name, attr_value=value, attr_type=AttributeType.EMBEDDING
         )
         super()._add_item_by_ref(attr=_attr)
