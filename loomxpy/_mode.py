@@ -404,11 +404,12 @@ class AnnotationAttributes(Attributes):
     def _validate_value(self, value: pd.core.frame.DataFrame):
         if __DEBUG__:
             print(f"DEBUG: _validate_value ({type(self).__name__})")
+        super()._validate_value(value=value)
         # Do some checks and processing for attribute of type ANNOTATION
         if (
             not self._force_conversion_to_categorical
-            and not pd.api.types.is_categorical_dtype(arr_or_dtype=value.values)
-            and not pd.api.types.is_bool_dtype(arr_or_dtype=value.values)
+            and not all(value.apply(pd.api.types.is_categorical_dtype))
+            and not all(value.apply(pd.api.types.is_bool_dtype))
         ):
             _dtype = value.infer_objects().dtypes[0]
             raise Exception(
