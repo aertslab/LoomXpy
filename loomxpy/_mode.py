@@ -275,9 +275,12 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
         """"""
         return len(self._keys)
 
-    def _add_item(self, key: str, attr_type: AttributeType, attr_value) -> Attribute:
+    def _add_key(self, key: str):
         if key not in self._keys:
             self._keys.append(key)
+
+    def _add_item(self, key: str, attr_type: AttributeType, attr_value) -> Attribute:
+        self._add_key(key=key)
         value = Attribute(
             key=key,
             mode_type=self._mode_type,
@@ -289,7 +292,8 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
         return value
 
     def _add_item_by_ref(self, attr: Attribute):
-        super().__setattr__(attr.key, attr.data)
+        self._add_key(key=attr.key)
+        super().__setattr__(attr.key, attr)
 
     @abc.abstractclassmethod
     def __setitem__(self, name, value):
