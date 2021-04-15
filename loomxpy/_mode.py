@@ -199,7 +199,14 @@ class AttributeType(Enum):
 
 class Attribute:
     def __init__(
-        self, key: str, mode_type: ModeType, attr_type: AttributeType, axis: Axis, data
+        self,
+        key: str,
+        mode_type: ModeType,
+        attr_type: AttributeType,
+        axis: Axis,
+        data,
+        name: str = None,
+        description: str = None,
     ):
         """"""
         self._key = key
@@ -207,18 +214,46 @@ class Attribute:
         self._attr_type = attr_type
         self._axis = axis
         self._data = data
+        self._name = name
+        self._description = description
 
     @property
     def key(self):
         return self._key
 
     @property
+    def mode_type(self):
+        return self._mode_type
+
+    @property
+    def attr_type(self):
+        return self._attr_type
+
+    @property
+    def axis(self):
+        return self._axis
+
+    @property
     def data(self):
         return self._data
 
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def description(self):
+        return self._description
+
     def __repr__(self):
         """"""
-        return self.data.__repr__()
+        return f"""
+key: {self._key}
+mode: {self._mode_type}
+type: {self._attr_type}
+name: {self._name}
+description: {self._name}
+        """
 
 
 class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
@@ -279,7 +314,14 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
         if key not in self._keys:
             self._keys.append(key)
 
-    def _add_item(self, key: str, attr_type: AttributeType, attr_value) -> Attribute:
+    def _add_item(
+        self,
+        key: str,
+        attr_type: AttributeType,
+        attr_value,
+        name: str = None,
+        description: str = None,
+    ) -> Attribute:
         self._add_key(key=key)
         value = Attribute(
             key=key,
@@ -287,6 +329,8 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
             attr_type=attr_type,
             axis=self._axis,
             data=attr_value,
+            name=name,
+            description=description,
         )
         super().__setattr__(key, value)
         return value
@@ -294,6 +338,10 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
     def _add_item_by_ref(self, attr: Attribute):
         self._add_key(key=attr.key)
         super().__setattr__(attr.key, attr)
+
+    def get_attribute(self, key) -> Attribute:
+        """"""
+        return super().__getattribute__(key)
 
     @abc.abstractclassmethod
     def __setitem__(self, name, value):
@@ -538,6 +586,21 @@ class ObservationAttributes(Attributes):
     def embeddings(self):
         return self._mode._oa_embeddings
 
+    def add_embedding(
+        self,
+        key: str,
+        value: pd.core.frame.DataFrame,
+        name: str = None,
+        description: str = None,
+    ) -> Attribute:
+        return super()._add_item(
+            key=key,
+            attr_value=value,
+            attr_type=AttributeType.EMBEDDING,
+            name=name,
+            description=description,
+        )
+
 
 class ObservationAnnotationAttributes(ObservationAttributes, AnnotationAttributes):
     def __init__(self, mode):
@@ -580,10 +643,19 @@ class ObservationEmbeddingAttributes(ObservationAttributes):
 
     def __setitem__(self, name: str, value: pd.core.frame.DataFrame):
         """"""
+        self.add(key=name, value=value)
+
+    def add(
+        self,
+        key: str,
+        value: pd.core.frame.DataFrame,
+        name: str = None,
+        description: str = None,
+    ):
         super()._validate_key(key=name)
         super()._validate_value(value=value)
 
-        _attr = self._mode._observation_attrs._add_item(
-            key=name, attr_value=value, attr_type=AttributeType.EMBEDDING
+        _attr = self._mode._observation_attrs.add_embedding(
+            key=key, value=value, name=name, description=description
         )
         super()._add_item_by_ref(attr=_attr)
