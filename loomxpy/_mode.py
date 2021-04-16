@@ -264,6 +264,7 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
         self._mode_type = mode._mode_type if mode is not None else ModeType.NONE
         self._axis = axis
         self._is_proxy = is_proxy
+        self._attr_type = kwargs["attr_type"] if "attr_type" in kwargs else False
         self._is_multi = True if "is_multi" in kwargs and kwargs["is_multi"] else False
 
     def __getattribute__(self, key):
@@ -381,7 +382,13 @@ class AttributesIterator:
 class AnnotationAttributes(Attributes):
     def __init__(self, mode: Mode, axis: Axis, is_proxy: bool = False, **kwargs):
         """"""
-        super().__init__(mode=mode, axis=axis, is_proxy=is_proxy, **kwargs)
+        super().__init__(
+            mode=mode,
+            axis=axis,
+            is_proxy=is_proxy,
+            attr_type=AttributeType.ANNOTATION,
+            **kwargs,
+        )
 
     def _validate_value(
         self,
@@ -416,9 +423,15 @@ class AnnotationAttributes(Attributes):
 
 
 class MetricAttributes(Attributes):
-    def __init__(self, mode: Mode, axis: Axis, is_proxy: bool = False):
+    def __init__(self, mode: Mode, axis: Axis, is_proxy: bool = False, **kwargs):
         """"""
-        super().__init__(mode=mode, axis=axis, is_proxy=is_proxy)
+        super().__init__(
+            mode=mode,
+            axis=axis,
+            is_proxy=is_proxy,
+            attr_type=AttributeType.METRIC,
+            **kwargs,
+        )
 
     def _validate_value(
         self, value: pd.core.frame.DataFrame, force_conversion_to_numeric: bool = False
@@ -449,7 +462,13 @@ class MetricAttributes(Attributes):
 class EmbeddingAttributes(Attributes):
     def __init__(self, mode: Mode, axis: Axis, is_proxy: bool = False, **kwargs):
         """"""
-        super().__init__(mode=mode, axis=Axis.OBSERVATIONS, is_proxy=is_proxy, **kwargs)
+        super().__init__(
+            mode=mode,
+            axis=axis,
+            is_proxy=is_proxy,
+            attr_type=AttributeType.EMBEDDING,
+            **kwargs,
+        )
 
 
 ##########################################
@@ -514,7 +533,7 @@ class FeatureAnnotationAttributes(FeatureAttributes, AnnotationAttributes):
         _attr = Attribute(
             key=name,
             mode_type=self._mode_type,
-            attr_type=AttributeType.ANNOTATION,
+            attr_type=self._attr_type,
             axis=self._axis,
             data=_data,
         )
@@ -537,7 +556,7 @@ class FeatureMetricAttributes(FeatureAttributes, MetricAttributes):
         _attr = Attribute(
             key=name,
             mode_type=self._mode_type,
-            attr_type=AttributeType.ANNOTATION,
+            attr_type=self._attr_type,
             axis=self._axis,
             data=_data,
         )
@@ -630,7 +649,7 @@ class ObservationAnnotationAttributes(ObservationAttributes, AnnotationAttribute
         _attr = Attribute(
             key=key,
             mode_type=self._mode_type,
-            attr_type=AttributeType.ANNOTATION,
+            attr_type=self._attr_type,
             axis=self._axis,
             data=_data,
             name=name,
@@ -655,7 +674,7 @@ class ObservationMetricAttributes(ObservationAttributes, MetricAttributes):
         _attr = Attribute(
             key=name,
             mode_type=self._mode_type,
-            attr_type=AttributeType.METRIC,
+            attr_type=self._attr_type,
             axis=self._axis,
             data=_data,
         )
@@ -674,6 +693,10 @@ class EmbeddingAttribute(Attribute):
     def __init__(self, projection_method: ProjectionMethod = None, **kwargs):
         super().__init__(**kwargs)
         self._projection_method = projection_method
+
+    @property
+    def projection_method(self):
+        return self._projection_method
 
     def __repr__(self):
         return f"""
@@ -715,7 +738,7 @@ class ObservationEmbeddingAttributes(ObservationAttributes, EmbeddingAttributes)
         _attr = EmbeddingAttribute(
             key=key,
             mode_type=self._mode_type,
-            attr_type=AttributeType.EMBEDDING,
+            attr_type=self._attr_type,
             axis=self._axis,
             data=value,
             name=name,
