@@ -314,14 +314,13 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
         if key not in self._keys:
             self._keys.append(key)
 
-    def _add_item(self, key: str, value: Attribute) -> Attribute:
+    def _add_item(self, key: str, value: Attribute) -> None:
         self._add_key(key=key)
         super().__setattr__(key, value)
-        return value
 
-    def _add_item_by_ref(self, attr: Attribute):
-        self._add_key(key=attr.key)
-        super().__setattr__(attr.key, attr)
+    def _add_item_by_value(self, value: Attribute):
+        self._add_key(key=value.key)
+        super().__setattr__(value.key, value)
 
     def get_attribute(self, key) -> Attribute:
         """"""
@@ -400,7 +399,7 @@ class AnnotationAttributes(Attributes):
         ):
             _dtype = value.infer_objects().dtypes[0]
             raise Exception(
-                f"Expects value to be categorical or bool but its dtype is {_dtype}"
+                f"Expects value to be categorical or bool but its dtype is {_dtype}. You can force the conversion to categorical by using <loomx-instance>.modes.<mode>.annotations.add(*, force=True)."
             )
 
     def _normalize_value(
@@ -420,7 +419,6 @@ class MetricAttributes(Attributes):
     def __init__(self, mode: Mode, axis: Axis, is_proxy: bool = False):
         """"""
         super().__init__(mode=mode, axis=axis, is_proxy=is_proxy)
-        self._force_conversion_to_numeric = False
 
     def _validate_value(
         self, value: pd.core.frame.DataFrame, force_conversion_to_numeric: bool = False
@@ -446,6 +444,12 @@ class MetricAttributes(Attributes):
             warnings.warn(f"Converting {name} metric to numeric type...")
             return pd.to_numeric(value)
         return value
+
+
+class EmbeddingAttributes(Attributes):
+    def __init__(self, mode: Mode, axis: Axis, is_proxy: bool = False, **kwargs):
+        """"""
+        super().__init__(mode=mode, axis=Axis.OBSERVATIONS, is_proxy=is_proxy, **kwargs)
 
 
 ##########################################
@@ -478,14 +482,14 @@ class FeatureAttributes(Attributes):
         self._validate_key(key=name)
         self._validate_value(value=value)
         # TODO: Attribute type should be inferred here
-        value = Attribute(
+        _attr = Attribute(
             key=name,
             attr_type=AttributeType.ANNOTATION,
             mode_type=self._mode_type,
             axis=self._axis,
             data=value,
         )
-        super()._add_item(key=name, value=value)
+        super()._add_item(key=name, value=_attr)
 
     @property
     def annotations(self):
@@ -505,12 +509,18 @@ class FeatureAnnotationAttributes(FeatureAttributes, AnnotationAttributes):
         """"""
         super()._validate_key(key=name)
         super()._validate_value(value=value)
-        value = super()._normalize_value(name=name, value=value)
+        _data = super()._normalize_value(name=name, value=value)
 
-        _attr = self._mode._feature_attrs._add_item(
-            key=name, attr_value=value, attr_type=AttributeType.ANNOTATION
+        _attr = Attribute(
+            key=name,
+            mode_type=self._mode_type,
+            attr_type=AttributeType.ANNOTATION,
+            axis=self._axis,
+            data=_data,
         )
-        super()._add_item_by_ref(attr=_attr)
+
+        self._mode._feature_attrs._add_item(key=name, value=_attr)
+        super()._add_item_by_value(value=_attr)
 
 
 class FeatureMetricAttributes(FeatureAttributes, MetricAttributes):
@@ -522,12 +532,18 @@ class FeatureMetricAttributes(FeatureAttributes, MetricAttributes):
         """"""
         super()._validate_key(key=name)
         super()._validate_value(value=value)
-        value = super()._normalize_value(name=name, value=value)
+        _data = super()._normalize_value(name=name, value=value)
 
-        _attr = self._mode._feature_attrs._add_item(
-            key=name, attr_value=value, attr_type=AttributeType.METRIC
+        _attr = Attribute(
+            key=name,
+            mode_type=self._mode_type,
+            attr_type=AttributeType.ANNOTATION,
+            axis=self._axis,
+            data=_data,
         )
-        super()._add_item_by_ref(attr=_attr)
+
+        self._mode._feature_attrs._add_item(key=name, value=_attr)
+        super()._add_item_by_value(value=_attr)
 
 
 ##########################################
@@ -556,14 +572,14 @@ class ObservationAttributes(Attributes):
         self._validate_value(value=value)
 
         # TODO: Attribute type should be inferred here
-        value = Attribute(
+        _attr = Attribute(
             key=name,
             attr_type=AttributeType.ANNOTATION,
             mode_type=self._mode_type,
             axis=self._axis,
             data=value,
         )
-        super()._add_item(key=name, value=value)
+        super()._add_item(key=name, value=_attr)
 
     @property
     def annotations(self):
@@ -583,11 +599,10 @@ class ObservationAttributes(Attributes):
         value: pd.core.frame.DataFrame,
         name: str = None,
         description: str = None,
-    ) -> Attribute:
-        return self._mode._oa_embeddings.add(
+    ):
+        self._mode._oa_embeddings.add(
             key=key,
-            attr_value=value,
-            attr_type=AttributeType.EMBEDDING,
+            value=value,
             name=name,
             description=description,
         )
@@ -600,20 +615,30 @@ class ObservationAnnotationAttributes(ObservationAttributes, AnnotationAttribute
 
     def __setitem__(self, name, value):
         """"""
-        self.add(name=name, value=value)
+        self.add(key=name, value=value)
 
-    def add(self, name, value, force: bool = False):
+    def add(
+        self, key, value, name: str = None, description: str = None, force: bool = False
+    ):
         """"""
-        super()._validate_key(key=name)
+        super()._validate_key(key=key)
         super()._validate_value(value=value, force_conversion_to_categorical=force)
-        value = super()._normalize_value(
-            name=name, value=value, force_conversion_to_categorical=force
+        _data = super()._normalize_value(
+            name=key, value=value, force_conversion_to_categorical=force
         )
 
-        _attr = self._mode._observation_attrs._add_item(
-            key=name, attr_value=value, attr_type=AttributeType.ANNOTATION
+        _attr = Attribute(
+            key=key,
+            mode_type=self._mode_type,
+            attr_type=AttributeType.ANNOTATION,
+            axis=self._axis,
+            data=_data,
+            name=name,
+            description=description,
         )
-        super()._add_item_by_ref(attr=_attr)
+
+        self._mode._observation_attrs._add_item(key=key, value=_attr)
+        super()._add_item_by_value(value=_attr)
 
 
 class ObservationMetricAttributes(ObservationAttributes, MetricAttributes):
@@ -625,15 +650,39 @@ class ObservationMetricAttributes(ObservationAttributes, MetricAttributes):
         """"""
         super()._validate_key(key=name)
         super()._validate_value(value=value)
-        value = super()._normalize_value(name=name, value=value)
+        _data = super()._normalize_value(name=name, value=value)
 
-        _attr = self._mode._observation_attrs._add_item(
-            key=name, attr_value=value, attr_type=AttributeType.METRIC
+        _attr = Attribute(
+            key=name,
+            mode_type=self._mode_type,
+            attr_type=AttributeType.METRIC,
+            axis=self._axis,
+            data=_data,
         )
-        super()._add_item_by_ref(attr=_attr)
+
+        self._mode._observation_attrs._add_item(key=name, value=_attr)
+        super()._add_item_by_value(value=_attr)
 
 
-class ObservationEmbeddingAttributes(ObservationAttributes):
+class ProjectionMethod(Enum):
+    PCA = 0
+    TSNE = 1
+    UMAP = 2
+
+
+class EmbeddingAttribute(Attribute):
+    def __init__(self, projection_method: ProjectionMethod = None, **kwargs):
+        super().__init__(**kwargs)
+        self._projection_method = projection_method
+
+    def __repr__(self):
+        return f"""
+{super().__repr__()}
+projection method: {ProjectionMethod(self._projection_method).name}
+        """
+
+
+class ObservationEmbeddingAttributes(ObservationAttributes, EmbeddingAttributes):
     def __init__(self, mode):
         """"""
         super().__init__(mode=mode, is_proxy=True, is_multi=True)
@@ -648,11 +697,22 @@ class ObservationEmbeddingAttributes(ObservationAttributes):
         value: pd.core.frame.DataFrame,
         name: str = None,
         description: str = None,
+        projection_method: ProjectionMethod = None,
     ):
         super()._validate_key(key=key)
         super()._validate_value(value=value)
 
-        value = Attribute(
+        _projection_method = None
+        if projection_method:
+            _projection_method = projection_method
+        elif "pca" in key.lower() or "pca" in name.lower():
+            _projection_method = ProjectionMethod.PCA
+        elif "tsne" in key.lower() or "tsne" in name.lower():
+            _projection_method = ProjectionMethod.TSNE
+        elif "umap" in key.lower() or "umap" in name.lower():
+            _projection_method = ProjectionMethod.UMAP
+
+        _attr = EmbeddingAttribute(
             key=key,
             mode_type=self._mode_type,
             attr_type=AttributeType.EMBEDDING,
@@ -660,6 +720,7 @@ class ObservationEmbeddingAttributes(ObservationAttributes):
             data=value,
             name=name,
             description=description,
+            projection_method=_projection_method,
         )
-        _attr = self._mode._observation_attrs._add_item(key=key, value=value)
-        super()._add_item_by_ref(attr=_attr)
+        self._mode._observation_attrs._add_item(key=key, value=_attr)
+        super()._add_item_by_value(value=_attr)
