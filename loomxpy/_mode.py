@@ -314,24 +314,8 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
         if key not in self._keys:
             self._keys.append(key)
 
-    def _add_item(
-        self,
-        key: str,
-        attr_type: AttributeType,
-        attr_value,
-        name: str = None,
-        description: str = None,
-    ) -> Attribute:
+    def _add_item(self, key: str, value: Attribute) -> Attribute:
         self._add_key(key=key)
-        value = Attribute(
-            key=key,
-            mode_type=self._mode_type,
-            attr_type=attr_type,
-            axis=self._axis,
-            data=attr_value,
-            name=name,
-            description=description,
-        )
         super().__setattr__(key, value)
         return value
 
@@ -494,9 +478,14 @@ class FeatureAttributes(Attributes):
         self._validate_key(key=name)
         self._validate_value(value=value)
         # TODO: Attribute type should be inferred here
-        super()._add_item(
-            key=name, attr_value=value, attr_type=AttributeType.ANNOTATION
+        value = Attribute(
+            key=name,
+            attr_type=AttributeType.ANNOTATION,
+            mode_type=self._mode_type,
+            axis=self._axis,
+            data=value,
         )
+        super()._add_item(key=name, value=value)
 
     @property
     def annotations(self):
@@ -567,9 +556,14 @@ class ObservationAttributes(Attributes):
         self._validate_value(value=value)
 
         # TODO: Attribute type should be inferred here
-        super()._add_item(
-            key=name, attr_value=value, attr_type=AttributeType.ANNOTATION
+        value = Attribute(
+            key=name,
+            attr_type=AttributeType.ANNOTATION,
+            mode_type=self._mode_type,
+            axis=self._axis,
+            data=value,
         )
+        super()._add_item(key=name, value=value)
 
     @property
     def annotations(self):
@@ -590,7 +584,7 @@ class ObservationAttributes(Attributes):
         name: str = None,
         description: str = None,
     ) -> Attribute:
-        return super()._add_item(
+        return self._mode._oa_embeddings.add(
             key=key,
             attr_value=value,
             attr_type=AttributeType.EMBEDDING,
@@ -655,10 +649,17 @@ class ObservationEmbeddingAttributes(ObservationAttributes):
         name: str = None,
         description: str = None,
     ):
-        super()._validate_key(key=name)
+        super()._validate_key(key=key)
         super()._validate_value(value=value)
 
-        _attr = self._mode._observation_attrs.add_embedding(
-            key=key, value=value, name=name, description=description
+        value = Attribute(
+            key=key,
+            mode_type=self._mode_type,
+            attr_type=AttributeType.EMBEDDING,
+            axis=self._axis,
+            data=value,
+            name=name,
+            description=description,
         )
+        _attr = self._mode._observation_attrs._add_item(key=key, value=value)
         super()._add_item_by_ref(attr=_attr)
