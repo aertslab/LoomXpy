@@ -40,6 +40,7 @@ class Mode(S7):
         self._oa_annotations = ObservationAnnotationAttributes(mode=self)
         self._oa_metrics = ObservationMetricAttributes(mode=self)
         self._oa_embeddings = ObservationEmbeddingAttributes(mode=self)
+        self._oa_clusterings = ObservationClusteringAttributes(mode=self)
 
     @property
     def X(self):
@@ -195,6 +196,7 @@ class AttributeType(Enum):
     ANNOTATION = 0
     METRIC = 1
     EMBEDDING = 2
+    CLUSTERING = 3
 
 
 class Attribute:
@@ -471,6 +473,18 @@ class EmbeddingAttributes(Attributes):
         )
 
 
+class ClusteringAttributes(Attributes):
+    def __init__(self, mode: Mode, axis: Axis, is_proxy: bool = False, **kwargs):
+        """"""
+        super().__init__(
+            mode=mode,
+            axis=axis,
+            is_proxy=is_proxy,
+            attr_type=AttributeType.CLUSTERING,
+            **kwargs,
+        )
+
+
 ##########################################
 # AXIS ATTRIBUTES - FEATURES             #
 ##########################################
@@ -664,6 +678,21 @@ class ObservationAttributes(Attributes):
             description=description,
         )
 
+    @property
+    def clusterings(self):
+        return self._mode._oa_clusterings
+
+    def add_clustering(
+        self,
+        key: str,
+        value: pd.core.frame.DataFrame,
+        name: str = None,
+        description: str = None,
+    ):
+        self._mode._oa_clusterings.add(
+            key=key, value=value, name=name, description=description
+        )
+
 
 class ObservationAnnotationAttributes(ObservationAttributes, AnnotationAttributes):
     def __init__(self, mode):
@@ -792,6 +821,89 @@ class ObservationEmbeddingAttributes(ObservationAttributes, EmbeddingAttributes)
             name=name,
             description=description,
             projection_method=_projection_method,
+        )
+        self._mode._observation_attrs._add_item(key=key, value=_attr)
+        super()._add_item_by_value(value=_attr)
+
+
+class Cluster:
+    def __init__(self, id: int, name: str = None, description: str = None):
+        self._id = id
+        self._name = name
+        self._description = description
+
+    @property
+    def id(self):
+        return self._id
+
+    @id.setter
+    def id(self, value):
+        raise Exception("The ID of the clustering cannot be changed.")
+
+    @property
+    def name(self):
+        if self._name is not None:
+            return self._name
+        return f"Unannotated Cluster {self._id}"
+
+    @name.setter
+    def name(self, value):
+        self._name = value
+
+    @property
+    def description(self):
+        if self._description is not None:
+            return self._description
+        return ""
+
+    @description.setter
+    def description(self, value):
+        self._description = value
+
+
+class ClusteringAttribute(Attribute):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._make_clusters()
+
+    def __getattribute__(self, name):
+        return super().__getattribute__(name)
+
+    def _make_clusters(self):
+        for cluster_id in sorted(
+            np.unique(self._data.values).astype(int),
+            reverse=False,
+        ):
+            super().__setattr__(f"cluster_{cluster_id}", Cluster(id=cluster_id))
+
+
+class ObservationClusteringAttributes(ObservationAttributes, ClusteringAttributes):
+    def __init__(self, mode):
+        """"""
+        super().__init__(mode=mode, is_proxy=True)
+
+    def __setitem__(self, name: str, value: pd.core.frame.DataFrame):
+        """"""
+        self.add(key=name, value=value)
+
+    def add(
+        self,
+        key: str,
+        value: pd.core.frame.DataFrame,
+        name: str = None,
+        description: str = None,
+    ):
+        super()._validate_key(key=key)
+        super()._validate_value(value=value)
+
+        _attr = ClusteringAttribute(
+            key=key,
+            mode_type=self._mode_type,
+            attr_type=self._attr_type,
+            axis=self._axis,
+            data=value,
+            name=name,
+            description=description,
         )
         self._mode._observation_attrs._add_item(key=key, value=_attr)
         super()._add_item_by_value(value=_attr)
