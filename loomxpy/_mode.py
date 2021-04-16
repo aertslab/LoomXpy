@@ -1,3 +1,5 @@
+import os
+import json
 import abc
 import warnings
 from typing import MutableMapping
@@ -6,11 +8,13 @@ from enum import Enum
 import pandas as pd
 import numpy as np
 from scipy import sparse
+import loompy as lp
 
 from loomxpy import __DEBUG__
 from ._s7 import S7
 from ._hooks import WithInitHook
 from ._matrix import DataMatrix
+from .utils import df_to_named_matrix, compress_encode
 
 
 ##########################################
@@ -53,6 +57,79 @@ class Mode(S7):
     @property
     def o(self):
         return self._observation_attrs
+
+    def export(
+        self, filename: str, output_format: str, title: str = None, genome: str = None
+    ):
+        if output_format == "scope_v1":
+            _row_attrs = {}
+            _col_attrs = {}
+            _global_attrs = {
+                "title": os.path.splitext(os.path.basename(filename))[0]
+                if title is None
+                else title,
+                "MetaData": {
+                    "annotations": [],
+                    "metrics": [],
+                    "embeddings": [],
+                    "clusterings": [],
+                },
+                "Genome": genome,
+            }
+            # Add row attributes (in Loom specifications)
+            for k, attr in self._feature_attrs:
+                _col_name = attr.data.columns[0]
+                _row_attrs[k] = attr.data[_col_name].values
+
+            # Add columns attributes (in Loom specifications)
+            for k, attr in self._observation_attrs:
+                if attr.attr_type.value == AttributeType.ANNOTATION.value:
+                    _col_name = attr.data.columns[0]
+                    # Categorical not valid, ndarray is required
+                    _col_attrs[k] = np.asarray(attr.data[_col_name].values)
+                    _global_attrs["MetaData"]["annotations"].append(
+                        {
+                            "name": k,
+                            "values": list(
+                                map(
+                                    lambda x: x.item()
+                                    if type(x).__module__ == "numpy"
+                                    else x,
+                                    sorted(
+                                        np.unique(attr.data[_col_name].values),
+                                        reverse=False,
+                                    ),
+                                )
+                            ),
+                        }
+                    )
+                if attr.attr_type.value == AttributeType.METRIC.value:
+                    _col_name = attr.data.columns[0]
+                    _col_attrs[k] = attr.data[_col_name].values
+                    _global_attrs["MetaData"]["metrics"].append({"name": k})
+                if attr.attr_type.value == AttributeType.EMBEDDING.value:
+                    _data = attr.data.loc[:, 0:1].copy()
+                    _data.columns = ["_X", "_Y"]
+                    _col_attrs[k] = df_to_named_matrix(df=_data)
+                    _global_attrs["MetaData"]["embeddings"].append(
+                        {
+                            "name": k,
+                        }
+                    )
+            _global_attrs["MetaData"] = json.dumps(_global_attrs["MetaData"])
+            _global_attrs["MetaData"] = compress_encode(value=_global_attrs["MetaData"])
+            lp.create(
+                filename=filename,
+                layers=self._data_matrix._data_matrix.transpose(),
+                row_attrs=_row_attrs,
+                col_attrs=_col_attrs,
+                file_attrs=_global_attrs,
+            )
+
+        else:
+            raise Exception(
+                f"Cannot export LoomX to the given output format '{output_format}'. Invalid output format"
+            )
 
 
 class Modes(MutableMapping[str, object], metaclass=WithInitHook):
@@ -364,14 +441,14 @@ class AttributesIterator:
         self._attrs = attrs
 
     def __iter__(self):
-        self.n = 0
+        self._n = 0
         return self
 
     def __next__(self):
-        if self.n <= len(self._attrs._keys):
-            self.n += 1
-            current_key = self._attrs._keys[self.n]
-            return current_key, self._attrs[current_key]
+        if self._n < len(self._attrs._keys):
+            current_key = self._attrs._keys[self._n]
+            self._n += 1
+            return current_key, self._attrs.get_attribute(current_key)
         else:
             raise StopIteration
 
