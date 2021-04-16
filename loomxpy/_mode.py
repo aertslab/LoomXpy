@@ -514,9 +514,15 @@ class FeatureAttributes(Attributes):
     def annotations(self):
         return self._mode._fa_annotations
 
+    def add_annotation(self, key: str, value: pd.core.frame.DataFrame):
+        self._mode._fa_annotations.add(key=key, value=value)
+
     @property
     def metrics(self):
         return self._mode._fa_metrics
+
+    def add_metric(self, key: str, value: pd.core.frame.DataFrame):
+        self._mode._fa_metrics.add(key=key, value=value)
 
 
 class FeatureAnnotationAttributes(FeatureAttributes, AnnotationAttributes):
@@ -526,19 +532,23 @@ class FeatureAnnotationAttributes(FeatureAttributes, AnnotationAttributes):
 
     def __setitem__(self, name, value):
         """"""
-        super()._validate_key(key=name)
+        self.add(key=name, value=value)
+
+    def add(self, key: str, value: pd.core.frame.DataFrame):
+        """"""
+        super()._validate_key(key=key)
         super()._validate_value(value=value)
-        _data = super()._normalize_value(name=name, value=value)
+        _data = super()._normalize_value(name=key, value=value)
 
         _attr = Attribute(
-            key=name,
+            key=key,
             mode_type=self._mode_type,
             attr_type=self._attr_type,
             axis=self._axis,
             data=_data,
         )
 
-        self._mode._feature_attrs._add_item(key=name, value=_attr)
+        self._mode._feature_attrs._add_item(key=key, value=_attr)
         super()._add_item_by_value(value=_attr)
 
 
@@ -549,19 +559,23 @@ class FeatureMetricAttributes(FeatureAttributes, MetricAttributes):
 
     def __setitem__(self, name: str, value: pd.core.frame.DataFrame):
         """"""
-        super()._validate_key(key=name)
+        self.add(key=name, value=value)
+
+    def add(self, key: str, value: pd.core.frame.DataFrame):
+        """"""
+        super()._validate_key(key=key)
         super()._validate_value(value=value)
-        _data = super()._normalize_value(name=name, value=value)
+        _data = super()._normalize_value(name=key, value=value)
 
         _attr = Attribute(
-            key=name,
+            key=key,
             mode_type=self._mode_type,
             attr_type=self._attr_type,
             axis=self._axis,
             data=_data,
         )
 
-        self._mode._feature_attrs._add_item(key=name, value=_attr)
+        self._mode._feature_attrs._add_item(key=key, value=_attr)
         super()._add_item_by_value(value=_attr)
 
 
@@ -604,9 +618,33 @@ class ObservationAttributes(Attributes):
     def annotations(self):
         return self._mode._oa_annotations
 
+    def add_annotation(
+        self,
+        key: str,
+        value: pd.core.frame.DataFrame,
+        name: str = None,
+        description: str = None,
+        force: bool = False,
+    ) -> None:
+        self._mode._oa_annotations.add(
+            key=key, value=value, name=name, description=description, force=force
+        )
+
     @property
     def metrics(self):
         return self._mode._oa_metrics
+
+    def add_metric(
+        self,
+        key: str,
+        value: pd.core.frame.DataFrame,
+        name: str = None,
+        description: str = None,
+        force: bool = False,
+    ) -> None:
+        self._mode._oa_metrics.add(
+            key=key, value=value, name=name, description=description, force=force
+        )
 
     @property
     def embeddings(self):
@@ -618,7 +656,7 @@ class ObservationAttributes(Attributes):
         value: pd.core.frame.DataFrame,
         name: str = None,
         description: str = None,
-    ):
+    ) -> None:
         self._mode._oa_embeddings.add(
             key=key,
             value=value,
@@ -667,9 +705,17 @@ class ObservationMetricAttributes(ObservationAttributes, MetricAttributes):
 
     def __setitem__(self, name: str, value: pd.core.frame.DataFrame):
         """"""
+        self.add(key=name, value=value)
+
+    def add(
+        self, key, value, name: str = None, description: str = None, force: bool = False
+    ):
+        """"""
         super()._validate_key(key=name)
         super()._validate_value(value=value)
-        _data = super()._normalize_value(name=name, value=value)
+        _data = super()._normalize_value(
+            name=name, value=value, force_conversion_to_numeric=force
+        )
 
         _attr = Attribute(
             key=name,
@@ -677,6 +723,8 @@ class ObservationMetricAttributes(ObservationAttributes, MetricAttributes):
             attr_type=self._attr_type,
             axis=self._axis,
             data=_data,
+            name=name,
+            description=description,
         )
 
         self._mode._observation_attrs._add_item(key=name, value=_attr)
