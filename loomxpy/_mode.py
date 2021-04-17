@@ -82,6 +82,11 @@ class Mode(S7):
                 _row_attrs[k] = attr.data[_col_name].values
 
             # Add columns attributes (in Loom specifications)
+            _default_embedding = None
+            _embeddings_X = pd.DataFrame(index=self._data_matrix._observation_names)
+            _embeddings_Y = pd.DataFrame(index=self._data_matrix._observation_names)
+            _clusterings = pd.DataFrame(index=self._data_matrix._observation_names)
+
             for k, attr in self._observation_attrs:
                 if attr.attr_type.value == AttributeType.ANNOTATION.value:
                     _col_name = attr.data.columns[0]
@@ -107,15 +112,113 @@ class Mode(S7):
                     _col_name = attr.data.columns[0]
                     _col_attrs[k] = attr.data[_col_name].values
                     _global_attrs["MetaData"]["metrics"].append({"name": k})
+
                 if attr.attr_type.value == AttributeType.EMBEDDING.value:
                     _data = attr.data.loc[:, 0:1].copy()
                     _data.columns = ["_X", "_Y"]
-                    _col_attrs[k] = df_to_named_matrix(df=_data)
+
+                    _num_embeddings = len(_global_attrs["MetaData"]["embeddings"])
+                    _embedding_id = 0 if _num_embeddings == 0 else _num_embeddings + 1
+                    _embeddings_X = pd.merge(
+                        _embeddings_X,
+                        _data["_X"]
+                        .to_frame()
+                        .rename(columns={"_X": str(_embedding_id)})
+                        .astype("float32"),
+                        left_index=True,
+                        right_index=True,
+                    )
+                    _embeddings_Y = pd.merge(
+                        _embeddings_Y,
+                        _data["_Y"]
+                        .to_frame()
+                        .rename(columns={"_Y": str(_embedding_id)})
+                        .astype("float32"),
+                        left_index=True,
+                        right_index=True,
+                    )
                     _global_attrs["MetaData"]["embeddings"].append(
                         {
+                            "id": str(
+                                _embedding_id
+                            ),  # TODO: type not consistent with clusterings
                             "name": k,
                         }
                     )
+
+                if attr.attr_type.value == AttributeType.CLUSTERING.value:
+                    if attr.name is None:
+                        raise Exception(
+                            f"The clustering with key '{attr.key}' does not have a name. This is required when exporting to SCope."
+                        )
+                    _col_name = attr.data.columns[0]
+                    _num_clusterings = len(_global_attrs["MetaData"]["clusterings"])
+                    _clustering_id = (
+                        0 if _num_clusterings == 0 else _num_clusterings + 1
+                    )
+                    _clusterings = pd.merge(
+                        _clusterings,
+                        attr.data.rename(columns={_col_name: str(_clustering_id)}),
+                        left_index=True,
+                        right_index=True,
+                    )
+                    _global_attrs["MetaData"]["clusterings"].append(
+                        {
+                            "id": _clustering_id,
+                            # "key": cluster.key,
+                            "name": attr.name,
+                            "group": "",
+                            "clusters": [],
+                            "clusterMarkerMetrics": [],
+                        }
+                    )
+                    cluster: Cluster
+                    for k, cluster in self._oa_clusterings.get_attribute(key=attr.key):
+                        _global_attrs["MetaData"]["clusterings"][_clustering_id][
+                            "clusters"
+                        ].append(
+                            {
+                                "id": cluster.id.item(),
+                                # "name": cluster.name,
+                                "description": cluster.description,
+                            }
+                        )
+            _row_attrs["Gene"] = np.asarray(self._data_matrix._feature_names)
+            _col_attrs["CellID"] = np.asarray(self._data_matrix._observation_names)
+            if _default_embedding is None:
+                _col_attrs["Embedding"] = df_to_named_matrix(
+                    df=pd.DataFrame(
+                        {
+                            "_X": _embeddings_X["0"].values,
+                            "_Y": _embeddings_Y["0"].values,
+                        }
+                    )
+                )
+                _embeddings_X.insert(
+                    loc=0, column="-1", value=_embeddings_X["0"].values
+                )
+                _embeddings_Y.insert(
+                    loc=0, column="-1", value=_embeddings_Y["0"].values
+                )
+                _md_first_embedding = list(
+                    filter(
+                        lambda x: x["id"] == "0",
+                        _global_attrs["MetaData"]["embeddings"],
+                    )
+                )[0]
+                _global_attrs["MetaData"]["embeddings"] = [
+                    {"id": "-1", "name": _md_first_embedding["name"]}
+                ] + list(
+                    filter(
+                        lambda x: x["id"] != "0",
+                        _global_attrs["MetaData"]["embeddings"],
+                    )
+                )
+            _col_attrs["Embeddings_X"] = df_to_named_matrix(df=_embeddings_X)
+            _col_attrs["Embeddings_Y"] = df_to_named_matrix(df=_embeddings_Y)
+            _col_attrs["Clusterings"] = df_to_named_matrix(
+                df=_clusterings.astype(np.int16)
+            )
             _global_attrs["MetaData"] = json.dumps(_global_attrs["MetaData"])
             _global_attrs["MetaData"] = compress_encode(value=_global_attrs["MetaData"])
             lp.create(
@@ -146,6 +249,10 @@ class Modes(MutableMapping[str, object], metaclass=WithInitHook):
         else:
             self.__setitem__(name=name, value=value)
 
+    def __delattr__(self, name: str):
+        self._keys.remove(name)
+        super().__delattr__(name=name)
+
     def __iter__(self):
         """"""
         raise NotImplementedError
@@ -156,7 +263,7 @@ class Modes(MutableMapping[str, object], metaclass=WithInitHook):
 
     def __delitem__(self, name) -> None:
         """"""
-        delattr(self, name)
+        self.__delattr__(name)
 
     def __getitem__(self, name) -> Mode:
         """"""
@@ -320,6 +427,10 @@ class Attribute:
     def name(self):
         return self._name
 
+    @name.setter
+    def name(self, value):
+        self._name = value
+
     @property
     def description(self):
         return self._description
@@ -373,10 +484,13 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
         else:
             self.__setitem__(name=name, value=value)
 
+    def __delattr__(self, name):
+        self._keys.remove(name)
+        super().__delattr__(name)
+
     def __delitem__(self, key):
         """"""
-        self._keys.remove(key)
-        super().__delattr__(key)
+        self.__delattr__(key)
 
     def __getitem__(self, key):
         """"""
@@ -931,7 +1045,7 @@ class Cluster:
     def description(self):
         if self._description is not None:
             return self._description
-        return ""
+        return self.name
 
     @description.setter
     def description(self, value):
@@ -941,17 +1055,46 @@ class Cluster:
 class ClusteringAttribute(Attribute):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self._cluster_ids = sorted(
+            np.unique(self._data.values).astype(int),
+            reverse=False,
+        )
         self._make_clusters()
+
+    def __iter__(self):
+        """"""
+        return iter(ClusteringAttributeIterator(self))
+
+    def __len__(self):
+        """"""
+        return len(self._keys)
 
     def __getattribute__(self, name):
         return super().__getattribute__(name)
 
     def _make_clusters(self):
-        for cluster_id in sorted(
-            np.unique(self._data.values).astype(int),
-            reverse=False,
-        ):
+        for cluster_id in self._cluster_ids:
             super().__setattr__(f"cluster_{cluster_id}", Cluster(id=cluster_id))
+
+
+class ClusteringAttributeIterator:
+
+    """Class to implement an iterator of ClusteringAttribute """
+
+    def __init__(self, attr: ClusteringAttribute):
+        self._attr = attr
+
+    def __iter__(self):
+        self._n = 0
+        return self
+
+    def __next__(self):
+        if self._n < len(self._attr._cluster_ids):
+            current_key = self._attr._cluster_ids[self._n]
+            self._n += 1
+            return current_key, self._attr.__getattribute__(f"cluster_{current_key}")
+        else:
+            raise StopIteration
 
 
 class ObservationClusteringAttributes(ObservationAttributes, ClusteringAttributes):
