@@ -931,14 +931,14 @@ class ObservationMetricAttributes(ObservationAttributes, MetricAttributes):
         self, key, value, name: str = None, description: str = None, force: bool = False
     ):
         """"""
-        super()._validate_key(key=name)
+        super()._validate_key(key=key)
         super()._validate_value(value=value)
         _data = super()._normalize_value(
-            name=name, value=value, force_conversion_to_numeric=force
+            name=key, value=value, force_conversion_to_numeric=force
         )
 
         _attr = Attribute(
-            key=name,
+            key=key,
             mode_type=self._mode_type,
             attr_type=self._attr_type,
             axis=self._axis,
@@ -947,7 +947,7 @@ class ObservationMetricAttributes(ObservationAttributes, MetricAttributes):
             description=description,
         )
 
-        self._mode._observation_attrs._add_item(key=name, value=_attr)
+        self._mode._observation_attrs._add_item(key=key, value=_attr)
         super()._add_item_by_value(value=_attr)
 
 
