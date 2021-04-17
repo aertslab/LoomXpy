@@ -228,6 +228,7 @@ class Mode(S7):
                 col_attrs=_col_attrs,
                 file_attrs=_global_attrs,
             )
+            print("INFO: LoomX successfully exported to SCope-compatible loom file.")
 
         else:
             raise Exception(
@@ -442,7 +443,7 @@ key: {self._key}
 mode: {self._mode_type}
 type: {self._attr_type}
 name: {self._name}
-description: {self._name}
+description: {self._description}
         """
 
 
