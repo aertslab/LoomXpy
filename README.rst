@@ -7,16 +7,12 @@ Python package (compatible with SCope) to create .loom files and extend them wit
 .. image:: https://img.shields.io/pypi/v/loomxpy.svg
         :target: https://pypi.python.org/pypi/loomxpy
 
-.. image:: https://img.shields.io/travis/dweemx/loomxpy.svg
-        :target: https://travis-ci.com/dweemx/loomxpy
-
 .. image:: https://readthedocs.org/projects/loomxpy/badge/?version=latest
         :target: https://loomxpy.readthedocs.io/en/latest/?badge=latest
         :alt: Documentation Status
 
-
-.. image:: https://pyup.io/repos/github/dweemx/loomxpy/shield.svg
-     :target: https://pyup.io/repos/github/dweemx/loomxpy/
+.. image:: https://pyup.io/repos/github/aertslab/loomxpy/shield.svg
+     :target: https://pyup.io/repos/github/aertslab/loomxpy/
      :alt: Updates
 
 

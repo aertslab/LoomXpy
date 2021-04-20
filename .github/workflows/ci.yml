@@ -30,12 +30,11 @@ jobs:
 
       - name: Set Poetry config
         run: |
-          ${HOME}/.poetry/bin/poetry config settings.virtualenvs.in-project false
-          ${HOME}/.poetry/bin/poetry config settings.virtualenvs.path ~/.virtualenvs
+          ${HOME}/.poetry/bin/poetry config virtualenvs.in-project false
+          ${HOME}/.poetry/bin/poetry config virtualenvs.path ${HOME}/.virtualenvs
 
       - name: Install dependencies
         run: ${HOME}/.poetry/bin/poetry install
-        if: steps.cache.outputs.cache-hit != 'true'
 
       - name: Code quality with black
         run: ${HOME}/.poetry/bin/poetry run black . --check
