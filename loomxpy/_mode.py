@@ -2,7 +2,7 @@ import os
 import json
 import abc
 import warnings
-from typing import MutableMapping
+from typing import MutableMapping, List
 from enum import Enum
 
 import pandas as pd
@@ -62,9 +62,9 @@ class Mode(S7):
         self, filename: str, output_format: str, title: str = None, genome: str = None
     ):
         if output_format == "scope_v1":
-            _row_attrs = {}
-            _col_attrs = {}
-            _global_attrs = {
+            _row_attrs: MutableMapping = {}
+            _col_attrs: MutableMapping = {}
+            _global_attrs: MutableMapping = {
                 "title": os.path.splitext(os.path.basename(filename))[0]
                 if title is None
                 else title,
@@ -239,7 +239,7 @@ class Mode(S7):
 class Modes(MutableMapping[str, object], metaclass=WithInitHook):
     def __init__(self):
         """"""
-        self._keys = []
+        self._keys: List[str] = []
         self._mode_types = [item.value for item in ModeType]
 
     def __setattr__(self, name, value):
@@ -252,7 +252,7 @@ class Modes(MutableMapping[str, object], metaclass=WithInitHook):
 
     def __delattr__(self, name: str):
         self._keys.remove(name)
-        super().__delattr__(name=name)
+        super().__delattr__(name)
 
     def __iter__(self):
         """"""
@@ -450,7 +450,7 @@ description: {self._description}
 class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
     def __init__(self, mode: Mode, axis: Axis, is_proxy: bool = False, **kwargs):
         """"""
-        self._keys = []
+        self._keys: List[str] = []
         self._mode = mode
         self._mode_type = mode._mode_type if mode is not None else ModeType.NONE
         self._axis = axis
@@ -517,7 +517,7 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
         self._add_key(key=value.key)
         super().__setattr__(value.key, value)
 
-    def get_attribute(self, key) -> Attribute:
+    def get_attribute(self, key):
         """"""
         return super().__getattribute__(key)
 
@@ -690,7 +690,7 @@ class FeatureAttributes(Attributes):
     def _validate_key(self, key: str):
         super()._validate_key(key=key)
 
-    def _validate_value(self, value):
+    def _validate_value(self, value: pd.DataFrame, **kwargs):
         if __DEBUG__:
             print(f"DEBUG: _validate_value ({type(self).__name__})")
         # Generic validation
@@ -997,11 +997,11 @@ class ObservationEmbeddingAttributes(ObservationAttributes, EmbeddingAttributes)
         _projection_method = None
         if projection_method:
             _projection_method = projection_method
-        elif "pca" in key.lower() or "pca" in name.lower():
+        elif "pca" in key.lower() or (name is not None and "pca" in name.lower()):
             _projection_method = ProjectionMethod.PCA
-        elif "tsne" in key.lower() or "tsne" in name.lower():
+        elif "tsne" in key.lower() or (name is not None and "tsne" in name.lower()):
             _projection_method = ProjectionMethod.TSNE
-        elif "umap" in key.lower() or "umap" in name.lower():
+        elif "umap" in key.lower() or (name is not None and "umap" in name.lower()):
             _projection_method = ProjectionMethod.UMAP
 
         _attr = EmbeddingAttribute(

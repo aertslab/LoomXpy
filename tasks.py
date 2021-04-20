@@ -46,12 +46,10 @@ def format(c, check=False):
     Format code
     """
     python_dirs_string = " ".join(PYTHON_DIRS)
-    # Run yapf
-    yapf_options = "--recursive {}".format("--diff" if check else "--in-place")
-    _run(c, "yapf {} {}".format(yapf_options, python_dirs_string))
-    # Run isort
-    isort_options = "--recursive {}".format("--check-only --diff" if check else "")
-    _run(c, "isort {} {}".format(isort_options, python_dirs_string))
+    _run(
+        c,
+        "poetry run black {} {}".format("--check" if check else "", python_dirs_string),
+    )
 
 
 @task
@@ -67,7 +65,7 @@ def lint_pylint(c):
     """
     Lint code with pylint
     """
-    _run(c, "pylint {}".format(" ".join(PYTHON_DIRS)))
+    _run(c, "poetry run pylint {}".format(" ".join(PYTHON_DIRS)))
 
 
 @task(lint_flake8, lint_pylint)
@@ -82,7 +80,7 @@ def test(c):
     """
     Run tests
     """
-    _run(c, "pytest")
+    _run(c, "poetry run pytest")
 
 
 @task(help={"publish": "Publish the result via coveralls"})
