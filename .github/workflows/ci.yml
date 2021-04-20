@@ -1,0 +1,43 @@
+name: CI
+on: [pull_request]
+
+jobs:
+  quality-checks:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.6, 3.7, 3.8]
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v1
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-poetry.py | python
+
+      - name: Cache Poetry virtualenvs
+        uses: actions/cache@v1
+        id: cache
+        with:
+          path: ~/.virtualenvs
+          key: poetry-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: |
+            poetry-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Set Poetry config
+        run: |
+          ${HOME}/.poetry/bin/poetry config virtualenvs.in-project false
+          ${HOME}/.poetry/bin/poetry config virtualenvs.path ${HOME}/.virtualenvs
+
+      - name: Install dependencies
+        run: ${HOME}/.poetry/bin/poetry install
+
+      - name: Code quality with black
+        run: ${HOME}/.poetry/bin/poetry run black . --check
+
+      - name: Test with pytest
+        run: ${HOME}/.poetry/bin/poetry run pytest
