@@ -584,17 +584,18 @@ class AnnotationAttributes(Attributes):
             **kwargs,
         )
 
-    def _validate_value(
-        self,
-        value: pd.core.frame.DataFrame,
-        force_conversion_to_categorical: bool = False,
-    ):
+    def _validate_value(self, value: pd.core.frame.DataFrame, **kwargs):
         if __DEBUG__:
             print(f"DEBUG: _validate_value ({type(self).__name__})")
         super()._validate_value(value=value)
+        _force_conversion_to_categorical = (
+            kwargs["force_conversion_to_categorical"]
+            if "force_conversion_to_categorical" in kwargs
+            else False
+        )
         # Do some checks and processing for attribute of type ANNOTATION
         if (
-            not force_conversion_to_categorical
+            not _force_conversion_to_categorical
             and not all(value.apply(pd.api.types.is_categorical_dtype))
             and not all(value.apply(pd.api.types.is_bool_dtype))
         ):
@@ -627,14 +628,17 @@ class MetricAttributes(Attributes):
             **kwargs,
         )
 
-    def _validate_value(
-        self, value: pd.core.frame.DataFrame, force_conversion_to_numeric: bool = False
-    ):
+    def _validate_value(self, value: pd.core.frame.DataFrame, **kwargs):
         if __DEBUG__:
             print(f"DEBUG: _validate_value ({type(self).__name__})")
         super()._validate_value(value=value)
+        _force_conversion_to_numeric = (
+            kwargs["force_conversion_to_numeric"]
+            if "force_conversion_to_numeric" in kwargs
+            else False
+        )
         # Do some checks and processing for attribute of type METRIC
-        if not force_conversion_to_numeric and not all(
+        if not _force_conversion_to_numeric and not all(
             value.apply(pd.api.types.is_numeric_dtype)
         ):
             _dtype = value.infer_objects().dtypes[0]
