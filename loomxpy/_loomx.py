@@ -19,6 +19,14 @@ class LoomX(S7):
     def active(self):
         return self._active_mode
 
+    @active.setter
+    def active(self, value):
+        self._validate_active_value(value=value)
+        self._active_mode = value
+        self._data_matrix = self.modes[value].X
+        self._feature_attrs = self.modes[value].f
+        self._observation_attrs = self.modes[value].o
+
     def _validate_active_value(self, value):
         _mode_keys_str = f"{', '.join(self.modes._keys)}"
         if len(self.modes._keys) == 0:
@@ -32,14 +40,6 @@ class LoomX(S7):
         raise Exception(
             f"The mode {value} does not exist. Choose one of: {_mode_keys_str}."
         )
-
-    @active.setter
-    def active(self, value):
-        self._validate_active_value(value=value)
-        self._active_mode = value
-        self._data_matrix = self.modes[value].X
-        self._feature_attrs = self.modes[value].f
-        self._observation_attrs = self.modes[value].o
 
     def _check_active_mode_is_set(self):
         if self._active_mode is None:
