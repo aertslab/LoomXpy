@@ -62,6 +62,7 @@ class Mode(S7):
         self, filename: str, output_format: str, title: str = None, genome: str = None
     ):
         if output_format == "scope_v1":
+            # Init
             _row_attrs: MutableMapping = {}
             _col_attrs: MutableMapping = {}
             _global_attrs: MutableMapping = {
@@ -78,8 +79,7 @@ class Mode(S7):
             }
             # Add row attributes (in Loom specifications)
             for k, attr in self._feature_attrs:
-                _col_name = attr.data.columns[0]
-                _row_attrs[k] = attr.data[_col_name].values
+                _row_attrs[k] = attr.values
 
             # Add columns attributes (in Loom specifications)
             _default_embedding = None
@@ -89,9 +89,8 @@ class Mode(S7):
 
             for k, attr in self._observation_attrs:
                 if attr.attr_type.value == AttributeType.ANNOTATION.value:
-                    _col_name = attr.data.columns[0]
                     # Categorical not valid, ndarray is required
-                    _col_attrs[k] = np.asarray(attr.data[_col_name].values)
+                    _col_attrs[k] = np.asarray(attr.values)
                     _global_attrs["MetaData"]["annotations"].append(
                         {
                             "name": k,
@@ -101,7 +100,7 @@ class Mode(S7):
                                     if type(x).__module__ == "numpy"
                                     else x,
                                     sorted(
-                                        np.unique(attr.data[_col_name].values),
+                                        np.unique(attr.values),
                                         reverse=False,
                                     ),
                                 )
@@ -109,8 +108,7 @@ class Mode(S7):
                         }
                     )
                 if attr.attr_type.value == AttributeType.METRIC.value:
-                    _col_name = attr.data.columns[0]
-                    _col_attrs[k] = attr.data[_col_name].values
+                    _col_attrs[k] = attr.values
                     _global_attrs["MetaData"]["metrics"].append({"name": k})
 
                 if attr.attr_type.value == AttributeType.EMBEDDING.value:
@@ -425,6 +423,15 @@ class Attribute:
         return self._data
 
     @property
+    def values(self):
+        if isinstance(self._data, pd.DataFrame):
+            _col_name = self._data.columns[0]
+            return self._data[_col_name].values
+        if isinstance(self._data, pd.Series):
+            return self._data
+        raise Exception(f"Cannot get values from Attribute with key {self._key}")
+
+    @property
     def name(self):
         return self._name
 
@@ -537,12 +544,16 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
             )
 
     def _validate_value(self, value):
-        if not isinstance(value, pd.core.frame.DataFrame):
+        if not isinstance(value, pd.DataFrame) and not isinstance(value, pd.Series):
             raise Exception(
                 f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Expects a pandas.core.frame.DataFrame."
             )
 
-        if not self._is_multi and value.shape[1] > 1:
+        if (
+            isinstance(value, pd.DataFrame)
+            and not self._is_multi
+            and value.shape[1] > 1
+        ):
             raise Exception(
                 f"Cannot add attribute of shape {value.shape[1]}. Currently, allows only {type(value).__name__} with maximally 1 feature (i.e.: column)."
             )
@@ -584,7 +595,7 @@ class AnnotationAttributes(Attributes):
             **kwargs,
         )
 
-    def _validate_value(self, value: pd.core.frame.DataFrame, **kwargs):
+    def _validate_value(self, value: pd.DataFrame, **kwargs):
         if __DEBUG__:
             print(f"DEBUG: _validate_value ({type(self).__name__})")
         super()._validate_value(value=value)
@@ -607,9 +618,9 @@ class AnnotationAttributes(Attributes):
     def _normalize_value(
         self,
         name: str,
-        value: pd.core.frame.DataFrame,
+        value: pd.DataFrame,
         force_conversion_to_categorical: bool = False,
-    ):
+    ) -> pd.DataFrame:
         if force_conversion_to_categorical:
             # Convert to Categorical
             warnings.warn(f"Converting {name} annotation to categorical type...")
@@ -628,7 +639,7 @@ class MetricAttributes(Attributes):
             **kwargs,
         )
 
-    def _validate_value(self, value: pd.core.frame.DataFrame, **kwargs):
+    def _validate_value(self, value: pd.DataFrame, **kwargs):
         if __DEBUG__:
             print(f"DEBUG: _validate_value ({type(self).__name__})")
         super()._validate_value(value=value)
@@ -647,9 +658,9 @@ class MetricAttributes(Attributes):
     def _normalize_value(
         self,
         name: str,
-        value: pd.core.frame.DataFrame,
+        value: pd.DataFrame,
         force_conversion_to_numeric: bool = False,
-    ):
+    ) -> pd.DataFrame:
         if force_conversion_to_numeric:
             # Convert to metric
             warnings.warn(f"Converting {name} metric to numeric type...")
@@ -701,7 +712,7 @@ class FeatureAttributes(Attributes):
         super()._validate_value(value=value)
         # Check if all observations from the given value are present in the DataMatrix of this mode
         _features = self._mode.X._feature_names
-        if not all(np.in1d(value.index.astype(str), _features)):
+        if not all(np.in1d(value.index.astype(str), _features.astype(str))):
             raise Exception(
                 f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Index of the given pandas.core.frame.DataFrame does not fully match the features in DataMatrix of mode."
             )
@@ -724,14 +735,14 @@ class FeatureAttributes(Attributes):
     def annotations(self):
         return self._mode._fa_annotations
 
-    def add_annotation(self, key: str, value: pd.core.frame.DataFrame):
+    def add_annotation(self, key: str, value: pd.DataFrame):
         self._mode._fa_annotations.add(key=key, value=value)
 
     @property
     def metrics(self):
         return self._mode._fa_metrics
 
-    def add_metric(self, key: str, value: pd.core.frame.DataFrame):
+    def add_metric(self, key: str, value: pd.DataFrame):
         self._mode._fa_metrics.add(key=key, value=value)
 
 
@@ -744,7 +755,7 @@ class FeatureAnnotationAttributes(FeatureAttributes, AnnotationAttributes):
         """"""
         self.add(key=name, value=value)
 
-    def add(self, key: str, value: pd.core.frame.DataFrame):
+    def add(self, key: str, value: pd.DataFrame):
         """"""
         super()._validate_key(key=key)
         super()._validate_value(value=value)
@@ -767,11 +778,11 @@ class FeatureMetricAttributes(FeatureAttributes, MetricAttributes):
         """"""
         super().__init__(mode=mode, is_proxy=True)
 
-    def __setitem__(self, name: str, value: pd.core.frame.DataFrame):
+    def __setitem__(self, name: str, value: pd.DataFrame):
         """"""
         self.add(key=name, value=value)
 
-    def add(self, key: str, value: pd.core.frame.DataFrame):
+    def add(self, key: str, value: pd.DataFrame):
         """"""
         super()._validate_key(key=key)
         super()._validate_value(value=value)
@@ -831,7 +842,7 @@ class ObservationAttributes(Attributes):
     def add_annotation(
         self,
         key: str,
-        value: pd.core.frame.DataFrame,
+        value: pd.DataFrame,
         name: str = None,
         description: str = None,
         force: bool = False,
@@ -847,7 +858,7 @@ class ObservationAttributes(Attributes):
     def add_metric(
         self,
         key: str,
-        value: pd.core.frame.DataFrame,
+        value: pd.DataFrame,
         name: str = None,
         description: str = None,
         force: bool = False,
@@ -863,7 +874,7 @@ class ObservationAttributes(Attributes):
     def add_embedding(
         self,
         key: str,
-        value: pd.core.frame.DataFrame,
+        value: pd.DataFrame,
         name: str = None,
         description: str = None,
     ) -> None:
@@ -881,7 +892,7 @@ class ObservationAttributes(Attributes):
     def add_clustering(
         self,
         key: str,
-        value: pd.core.frame.DataFrame,
+        value: pd.DataFrame,
         name: str = None,
         description: str = None,
     ):
@@ -928,7 +939,7 @@ class ObservationMetricAttributes(ObservationAttributes, MetricAttributes):
         """"""
         super().__init__(mode=mode, is_proxy=True)
 
-    def __setitem__(self, name: str, value: pd.core.frame.DataFrame):
+    def __setitem__(self, name: str, value: pd.DataFrame):
         """"""
         self.add(key=name, value=value)
 
@@ -983,14 +994,14 @@ class ObservationEmbeddingAttributes(ObservationAttributes, EmbeddingAttributes)
         """"""
         super().__init__(mode=mode, is_proxy=True, is_multi=True)
 
-    def __setitem__(self, name: str, value: pd.core.frame.DataFrame):
+    def __setitem__(self, name: str, value: pd.DataFrame):
         """"""
         self.add(key=name, value=value)
 
     def add(
         self,
         key: str,
-        value: pd.core.frame.DataFrame,
+        value: pd.DataFrame,
         name: str = None,
         description: str = None,
         projection_method: ProjectionMethod = None,
@@ -1107,14 +1118,14 @@ class ObservationClusteringAttributes(ObservationAttributes, ClusteringAttribute
         """"""
         super().__init__(mode=mode, is_proxy=True)
 
-    def __setitem__(self, name: str, value: pd.core.frame.DataFrame):
+    def __setitem__(self, name: str, value: pd.DataFrame):
         """"""
         self.add(key=name, value=value)
 
     def add(
         self,
         key: str,
-        value: pd.core.frame.DataFrame,
+        value: pd.DataFrame,
         name: str = None,
         description: str = None,
     ):
