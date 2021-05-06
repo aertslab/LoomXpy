@@ -1,6 +1,6 @@
 from dataclasses_json import dataclass_json
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, field
+from typing import Optional, List
 
 GLOBAL_ATTRIBUTE_KEY = "MetaData"
 
