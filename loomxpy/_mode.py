@@ -2,7 +2,7 @@ import os
 import json
 import abc
 import warnings
-from typing import MutableMapping, List
+from typing import MutableMapping, List, Union
 from enum import Enum
 
 import pandas as pd
@@ -595,7 +595,7 @@ class AnnotationAttributes(Attributes):
             **kwargs,
         )
 
-    def _validate_value(self, value: pd.DataFrame, **kwargs):
+    def _validate_value(self, value: Union[pd.DataFrame, pd.Series], **kwargs):
         if __DEBUG__:
             print(f"DEBUG: _validate_value ({type(self).__name__})")
         super()._validate_value(value=value)
@@ -605,20 +605,29 @@ class AnnotationAttributes(Attributes):
             else False
         )
         # Do some checks and processing for attribute of type ANNOTATION
-        if (
-            not _force_conversion_to_categorical
-            and not all(value.apply(pd.api.types.is_categorical_dtype))
-            and not all(value.apply(pd.api.types.is_bool_dtype))
-        ):
-            _dtype = value.infer_objects().dtypes[0]
-            raise Exception(
-                f"Expects value to be categorical or bool but its dtype is {_dtype}. You can force the conversion to categorical by using <loomx-instance>.modes.<mode>.annotations.add(*, force=True)."
-            )
+        if not _force_conversion_to_categorical:
+            if (
+                isinstance(value, pd.DataFrame)
+                and not all(value.apply(pd.api.types.is_categorical_dtype))
+                and not all(value.apply(pd.api.types.is_bool_dtype))
+            ) or (
+                isinstance(value, pd.Series)
+                and not pd.api.types.is_categorical_dtype(arr_or_dtype=value)
+                and not pd.api.types.is_bool_dtype(arr_or_dtype=value)
+            ):
+                _dtype = (
+                    value.infer_objects().dtypes[0]
+                    if isinstance(value, pd.DataFrame)
+                    else value.infer_objects().dtype
+                )
+                raise Exception(
+                    f"Expects value to be categorical or bool but its dtype is {_dtype}. You can force the conversion to categorical by using <loomx-instance>.modes.<mode>.annotations.add(*, force=True)."
+                )
 
     def _normalize_value(
         self,
         name: str,
-        value: pd.DataFrame,
+        value: Union[pd.DataFrame, pd.Series],
         force_conversion_to_categorical: bool = False,
     ) -> pd.DataFrame:
         if force_conversion_to_categorical:
@@ -639,7 +648,7 @@ class MetricAttributes(Attributes):
             **kwargs,
         )
 
-    def _validate_value(self, value: pd.DataFrame, **kwargs):
+    def _validate_value(self, value: Union[pd.DataFrame, pd.Series], **kwargs):
         if __DEBUG__:
             print(f"DEBUG: _validate_value ({type(self).__name__})")
         super()._validate_value(value=value)
@@ -649,18 +658,29 @@ class MetricAttributes(Attributes):
             else False
         )
         # Do some checks and processing for attribute of type METRIC
-        if not _force_conversion_to_numeric and not all(
-            value.apply(pd.api.types.is_numeric_dtype)
-        ):
-            _dtype = value.infer_objects().dtypes[0]
-            raise Exception(f"Expects value to be numeric but its dtype is {_dtype}")
+        if not _force_conversion_to_numeric:
+            if (
+                isinstance(value, pd.DataFrame)
+                and not all(value.apply(pd.api.types.is_numeric_dtype))
+            ) or (
+                isinstance(value, pd.Series)
+                and not pd.api.types.is_numeric_dtype(arr_or_dtype=value)
+            ):
+                _dtype = (
+                    value.infer_objects().dtypes[0]
+                    if isinstance(value, pd.DataFrame)
+                    else value.infer_objects().dtype
+                )
+                raise Exception(
+                    f"Expects value to be numeric but its dtype is {_dtype}"
+                )
 
     def _normalize_value(
         self,
         name: str,
-        value: pd.DataFrame,
+        value: Union[pd.DataFrame, pd.Series],
         force_conversion_to_numeric: bool = False,
-    ) -> pd.DataFrame:
+    ) -> Union[pd.DataFrame, pd.Series]:
         if force_conversion_to_numeric:
             # Convert to metric
             warnings.warn(f"Converting {name} metric to numeric type...")
@@ -705,7 +725,7 @@ class FeatureAttributes(Attributes):
     def _validate_key(self, key: str):
         super()._validate_key(key=key)
 
-    def _validate_value(self, value: pd.DataFrame, **kwargs):
+    def _validate_value(self, value: Union[pd.DataFrame, pd.Series], **kwargs):
         if __DEBUG__:
             print(f"DEBUG: _validate_value ({type(self).__name__})")
         # Generic validation
@@ -735,14 +755,14 @@ class FeatureAttributes(Attributes):
     def annotations(self):
         return self._mode._fa_annotations
 
-    def add_annotation(self, key: str, value: pd.DataFrame):
+    def add_annotation(self, key: str, value: Union[pd.DataFrame, pd.Series]):
         self._mode._fa_annotations.add(key=key, value=value)
 
     @property
     def metrics(self):
         return self._mode._fa_metrics
 
-    def add_metric(self, key: str, value: pd.DataFrame):
+    def add_metric(self, key: str, value: Union[pd.DataFrame, pd.Series]):
         self._mode._fa_metrics.add(key=key, value=value)
 
 
@@ -755,7 +775,7 @@ class FeatureAnnotationAttributes(FeatureAttributes, AnnotationAttributes):
         """"""
         self.add(key=name, value=value)
 
-    def add(self, key: str, value: pd.DataFrame):
+    def add(self, key: str, value: Union[pd.DataFrame, pd.Series]):
         """"""
         super()._validate_key(key=key)
         super()._validate_value(value=value)
@@ -778,11 +798,11 @@ class FeatureMetricAttributes(FeatureAttributes, MetricAttributes):
         """"""
         super().__init__(mode=mode, is_proxy=True)
 
-    def __setitem__(self, name: str, value: pd.DataFrame):
+    def __setitem__(self, name: str, value: Union[pd.DataFrame, pd.Series]):
         """"""
         self.add(key=name, value=value)
 
-    def add(self, key: str, value: pd.DataFrame):
+    def add(self, key: str, value: Union[pd.DataFrame, pd.Series]):
         """"""
         super()._validate_key(key=key)
         super()._validate_value(value=value)
@@ -842,7 +862,7 @@ class ObservationAttributes(Attributes):
     def add_annotation(
         self,
         key: str,
-        value: pd.DataFrame,
+        value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
         force: bool = False,
@@ -858,7 +878,7 @@ class ObservationAttributes(Attributes):
     def add_metric(
         self,
         key: str,
-        value: pd.DataFrame,
+        value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
         force: bool = False,
@@ -874,7 +894,7 @@ class ObservationAttributes(Attributes):
     def add_embedding(
         self,
         key: str,
-        value: pd.DataFrame,
+        value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
     ) -> None:
@@ -892,7 +912,7 @@ class ObservationAttributes(Attributes):
     def add_clustering(
         self,
         key: str,
-        value: pd.DataFrame,
+        value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
     ):
@@ -939,7 +959,7 @@ class ObservationMetricAttributes(ObservationAttributes, MetricAttributes):
         """"""
         super().__init__(mode=mode, is_proxy=True)
 
-    def __setitem__(self, name: str, value: pd.DataFrame):
+    def __setitem__(self, name: str, value: Union[pd.DataFrame, pd.Series]):
         """"""
         self.add(key=name, value=value)
 
@@ -994,14 +1014,14 @@ class ObservationEmbeddingAttributes(ObservationAttributes, EmbeddingAttributes)
         """"""
         super().__init__(mode=mode, is_proxy=True, is_multi=True)
 
-    def __setitem__(self, name: str, value: pd.DataFrame):
+    def __setitem__(self, name: str, value: Union[pd.DataFrame, pd.Series]):
         """"""
         self.add(key=name, value=value)
 
     def add(
         self,
         key: str,
-        value: pd.DataFrame,
+        value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
         projection_method: ProjectionMethod = None,
@@ -1118,14 +1138,14 @@ class ObservationClusteringAttributes(ObservationAttributes, ClusteringAttribute
         """"""
         super().__init__(mode=mode, is_proxy=True)
 
-    def __setitem__(self, name: str, value: pd.DataFrame):
+    def __setitem__(self, name: str, value: Union[pd.DataFrame, pd.Series]):
         """"""
         self.add(key=name, value=value)
 
     def add(
         self,
         key: str,
-        value: pd.DataFrame,
+        value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
     ):
