@@ -112,11 +112,26 @@ class Mode(S7):
                     _global_attrs["MetaData"]["metrics"].append({"name": k})
 
                 if attr.attr_type.value == AttributeType.EMBEDDING.value:
-                    _data = attr.data.loc[:, 0:1].copy()
+                    _attr: EmbeddingAttribute = attr.copy()
+                    _data = attr.data.loc[:, 0:1]
                     _data.columns = ["_X", "_Y"]
 
-                    _num_embeddings = len(_global_attrs["MetaData"]["embeddings"])
-                    _embedding_id = 0 if _num_embeddings == 0 else _num_embeddings + 1
+                    # Number of embeddings (don't count the default embedding since this will be use to determine the id of the embedding)
+                    _num_embeddings = len(
+                        list(
+                            filter(
+                                lambda x: int(x["id"]) != -1,
+                                _global_attrs["MetaData"]["embeddings"],
+                            )
+                        )
+                    )
+                    _embedding_id = (
+                        -1
+                        if _attr._default
+                        else 0
+                        if _num_embeddings == 0
+                        else _num_embeddings + 1
+                    )
                     _embeddings_X = pd.merge(
                         _embeddings_X,
                         _data["_X"]
@@ -996,17 +1011,33 @@ class ProjectionMethod(Enum):
 
 
 class EmbeddingAttribute(Attribute):
-    def __init__(self, projection_method: ProjectionMethod = None, **kwargs):
+    def __init__(
+        self, default: False, projection_method: ProjectionMethod = None, **kwargs
+    ):
         super().__init__(**kwargs)
+        self._default = default
         self._projection_method = projection_method
 
     @property
-    def projection_method(self):
+    def default(self) -> bool:
+        return self._default
+
+    @default.setter
+    def default(self, value: bool):
+        self._default = value
+
+    @property
+    def projection_method(self) -> str:
         return self._projection_method
+
+    @projection_method.setter
+    def project_method(self, value: str):
+        self._projection_method = value
 
     def __repr__(self):
         return f"""
 {super().__repr__()}
+default: {self._default}
 projection method: {ProjectionMethod(self._projection_method).name}
         """
 
@@ -1026,6 +1057,7 @@ class ObservationEmbeddingAttributes(ObservationAttributes, EmbeddingAttributes)
         value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
+        default: bool = False,
         projection_method: ProjectionMethod = None,
     ):
         super()._validate_key(key=key)
@@ -1049,6 +1081,7 @@ class ObservationEmbeddingAttributes(ObservationAttributes, EmbeddingAttributes)
             data=value,
             name=name,
             description=description,
+            default=default,
             projection_method=_projection_method,
         )
         self._mode._observation_attrs._add_item(key=key, value=_attr)
