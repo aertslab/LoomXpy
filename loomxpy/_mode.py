@@ -542,11 +542,13 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
             raise Exception(
                 f"Cannot add attribute with key of type ({type(key).__name__}) to {type(self).__name__}. Not a valid key. Expects key of type str."
             )
+        if "." in key:
+            warnings.warn(f"This attribute won't be accessible using the dot notation.")
 
     def _validate_value(self, value):
         if not isinstance(value, pd.DataFrame) and not isinstance(value, pd.Series):
             raise Exception(
-                f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Expects a pandas.core.frame.DataFrame."
+                f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Expects a pandas.DataFrame or a pandas.Series."
             )
 
         if (
