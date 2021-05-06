@@ -89,6 +89,24 @@ def _read_scope_rna_loom(loom_connection: lp.LoomConnection, force_conversion: D
         raise Exception(
             "You can force the conversion of the metrics to numerical by setting the parameter `force_conversion={'metrics': True}`"
         )
+    ### Add embeddings
+    for embedding in _metadata.embeddings:
+        _embedding_df = pd.DataFrame(
+            {
+                "_X": loom_connection.ca["Embeddings_X"][str(embedding.id)],
+                "_Y": loom_connection.ca["Embeddings_Y"][str(embedding.id)],
+            },
+            index=lx.modes.rna.X._observation_names,
+        )
+        lx.modes.rna.o.embeddings.add(
+            key=embedding.name.lower()
+            .replace(" ", "__")
+            .replace("-", "_")
+            .replace("/", "_"),
+            value=_embedding_df,
+            name=embedding.name,
+            default=int(embedding.id) == -1,
+        )
     return lx
 
 
@@ -99,7 +117,9 @@ def _read_scope_loom(
         return _read_scope_rna_loom(
             loom_connection=loom_connection, force_conversion=force_conversion
         )
-    raise Exception(f"The given mode type '{mode_type}' has not been implemented yet.")
+    # Should be uncommented on production
+    # Commented here ease the flow with editable mode
+    # raise Exception(f"The given mode type '{mode_type}' has not been implemented yet.")
 
 
 def read_loom(

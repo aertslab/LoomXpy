@@ -249,11 +249,13 @@ class Mode(S7):
             )
 
 
-class Modes(MutableMapping[str, object], metaclass=WithInitHook):
+class Modes(MutableMapping[str, Mode], metaclass=WithInitHook):
     def __init__(self):
         """"""
         self._keys: List[str] = []
         self._mode_types = [item.value for item in ModeType]
+        # Implemented modes (used here mainly for typing purposes)
+        self.rna: Mode = None
 
     def __setattr__(self, name, value):
         if not hasattr(self, "_initialized"):
