@@ -12,6 +12,7 @@ import loompy as lp
 
 from loomxpy import __DEBUG__
 from ._s7 import S7
+from ._errors import BadDTypeException
 from ._hooks import WithInitHook
 from ._matrix import DataMatrix
 from .utils import df_to_named_matrix, compress_encode
@@ -639,7 +640,7 @@ class AnnotationAttributes(Attributes):
                     if isinstance(value, pd.DataFrame)
                     else value.infer_objects().dtype
                 )
-                raise Exception(
+                raise BadDTypeException(
                     f"Expects value to be categorical or bool but its dtype is {_dtype}. You can force the conversion to categorical by using <loomx-instance>.modes.<mode>.annotations.add(*, force=True)."
                 )
 
@@ -690,7 +691,7 @@ class MetricAttributes(Attributes):
                     if isinstance(value, pd.DataFrame)
                     else value.infer_objects().dtype
                 )
-                raise Exception(
+                raise BadDTypeException(
                     f"Expects value to be numeric but its dtype is {_dtype}"
                 )
 

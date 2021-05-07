@@ -7,6 +7,7 @@ import loompy as lp
 from typing import NamedTuple, Dict
 from scipy import sparse
 
+from loomxpy._errors import BadDTypeException
 from loomxpy._loomx import LoomX
 from loomxpy._mode import Mode, ModeType
 from loomxpy._specifications import LoomXMetadata, GLOBAL_ATTRIBUTE_KEY
@@ -58,6 +59,7 @@ def _read_scope_rna_loom(loom_connection: lp.LoomConnection, force_conversion: D
         for annotation in _metadata.annotations:
             lx.modes.rna.o.annotations.add(
                 key=annotation.name,
+                name=annotation.name,
                 value=pd.Series(
                     data=loom_connection.ca[annotation.name],
                     index=lx.modes.rna.X._observation_names,
@@ -67,7 +69,7 @@ def _read_scope_rna_loom(loom_connection: lp.LoomConnection, force_conversion: D
                 if "annotations" in force_conversion
                 else False,
             )
-    except:
+    except BadDTypeException:
         raise Exception(
             "You can force the conversion of the annotations to categorical by setting the parameter `force_conversion={'annotations': True}`"
         )
@@ -76,6 +78,7 @@ def _read_scope_rna_loom(loom_connection: lp.LoomConnection, force_conversion: D
         for metric in _metadata.metrics:
             lx.modes.rna.o.metrics.add(
                 key=metric.name,
+                name=metric.name,
                 value=pd.Series(
                     data=loom_connection.ca[metric.name],
                     index=lx.modes.rna.X._observation_names,
@@ -85,7 +88,7 @@ def _read_scope_rna_loom(loom_connection: lp.LoomConnection, force_conversion: D
                 if "metrics" in force_conversion
                 else False,
             )
-    except:
+    except BadDTypeException:
         raise Exception(
             "You can force the conversion of the metrics to numerical by setting the parameter `force_conversion={'metrics': True}`"
         )
@@ -99,10 +102,7 @@ def _read_scope_rna_loom(loom_connection: lp.LoomConnection, force_conversion: D
             index=lx.modes.rna.X._observation_names,
         )
         lx.modes.rna.o.embeddings.add(
-            key=embedding.name.lower()
-            .replace(" ", "__")
-            .replace("-", "_")
-            .replace("/", "_"),
+            key=embedding.name,
             value=_embedding_df,
             name=embedding.name,
             default=int(embedding.id) == -1,
