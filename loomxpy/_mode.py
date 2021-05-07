@@ -136,11 +136,15 @@ class Mode(S7):
                         )
                     )
                     _embedding_id = (
-                        -1
-                        if _attr._default
-                        else 0
-                        if _num_embeddings == 0
-                        else _num_embeddings + 1
+                        _attr.id
+                        if _attr.id is not None
+                        else (
+                            -1
+                            if _attr._default
+                            else 0
+                            if _num_embeddings == 0
+                            else _num_embeddings + 1
+                        )
                     )
                     _embeddings_X = pd.merge(
                         _embeddings_X,
@@ -587,7 +591,6 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
             warnings.warn(
                 f"The key '{key}' won't be accessible using the dot notation (containing special characters other than '_')",
             )
-
 
     def _validate_value(self, value):
         if not isinstance(value, pd.DataFrame) and not isinstance(value, pd.Series):
@@ -1041,11 +1044,24 @@ class ProjectionMethod(Enum):
 
 class EmbeddingAttribute(Attribute):
     def __init__(
-        self, default: False, projection_method: ProjectionMethod = None, **kwargs
+        self,
+        id: int = None,
+        default: bool = False,
+        projection_method: ProjectionMethod = None,
+        **kwargs,
     ):
         super().__init__(**kwargs)
+        self._id = id
         self._default = default
         self._projection_method = projection_method
+
+    @property
+    def id(self) -> int:
+        return self._id
+
+    @id.setter
+    def id(self, value: int):
+        self.int = value
 
     @property
     def default(self) -> bool:
@@ -1086,6 +1102,7 @@ class ObservationEmbeddingAttributes(ObservationAttributes, EmbeddingAttributes)
         value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
+        id: int = None,
         default: bool = False,
         projection_method: ProjectionMethod = None,
     ):
@@ -1110,6 +1127,8 @@ class ObservationEmbeddingAttributes(ObservationAttributes, EmbeddingAttributes)
             data=value,
             name=name,
             description=description,
+            # specific
+            id=id,
             default=default,
             projection_method=_projection_method,
         )
@@ -1129,7 +1148,7 @@ class Cluster:
 
     @id.setter
     def id(self, value):
-        raise Exception("The ID of the clustering cannot be changed.")
+        raise Exception("The ID of the cluster cannot be changed.")
 
     @property
     def name(self):
@@ -1153,8 +1172,10 @@ class Cluster:
 
 
 class ClusteringAttribute(Attribute):
-    def __init__(self, **kwargs):
+    def __init__(self, id: int = None, group: str = None, **kwargs):
         super().__init__(**kwargs)
+        self._id = id
+        self._group = group
         self._cluster_ids = sorted(
             np.unique(self._data.values).astype(int),
             reverse=False,
@@ -1171,6 +1192,22 @@ class ClusteringAttribute(Attribute):
 
     def __getattribute__(self, name):
         return super().__getattribute__(name)
+
+    @property
+    def id(self):
+        return self._id
+
+    @id.setter
+    def id(self, value: int):
+        self._id = value
+
+    @property
+    def group(self):
+        return self._group
+
+    @group.setter
+    def group(self, value: str):
+        self._group = value
 
     def _make_clusters(self):
         for cluster_id in self._cluster_ids:
@@ -1212,6 +1249,9 @@ class ObservationClusteringAttributes(ObservationAttributes, ClusteringAttribute
         value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
+        # specific
+        id: int = None,
+        group: str = None,
     ):
         super()._validate_key(key=key)
         super()._validate_value(value=value)
@@ -1224,6 +1264,8 @@ class ObservationClusteringAttributes(ObservationAttributes, ClusteringAttribute
             data=value,
             name=name,
             description=description,
+            id=id,
+            group=group,
         )
         self._mode._observation_attrs._add_item(key=key, value=_attr)
         super()._add_item_by_value(value=_attr)

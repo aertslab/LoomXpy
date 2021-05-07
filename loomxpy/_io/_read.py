@@ -105,6 +105,7 @@ def _read_scope_rna_loom(loom_connection: lp.LoomConnection, force_conversion: D
             key=embedding.name,
             value=_embedding_df,
             name=embedding.name,
+            id=int(embedding.id),
             default=int(embedding.id) == -1,
         )
     return lx
