@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import abc
 import warnings
@@ -16,6 +17,14 @@ from ._errors import BadDTypeException
 from ._hooks import WithInitHook
 from ._matrix import DataMatrix
 from .utils import df_to_named_matrix, compress_encode
+
+
+def custom_formatwarning(msg, *args, **kwargs):
+    # ignore everything except the message
+    return str(msg) + "\n"
+
+
+warnings.formatwarning = custom_formatwarning
 
 
 ##########################################
@@ -560,8 +569,13 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
             raise Exception(
                 f"Cannot add attribute with key of type ({type(key).__name__}) to {type(self).__name__}. Not a valid key. Expects key of type str."
             )
-        if "." in key:
-            warnings.warn(f"This attribute won't be accessible using the dot notation.")
+        # Print a warning in key contains characters not allowed. If any present, this will prevent the user to use dot notation. Brackets access will work.
+        pattern = "^[a-zA-Z0-9_]+$"
+        if not re.match(pattern, key):
+            warnings.warn(
+                f"The key '{key}' won't be accessible using the dot notation (containing special characters other than '_')",
+            )
+
 
     def _validate_value(self, value):
         if not isinstance(value, pd.DataFrame) and not isinstance(value, pd.Series):
