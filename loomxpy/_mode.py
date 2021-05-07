@@ -297,6 +297,10 @@ class Modes(MutableMapping[str, Mode], metaclass=WithInitHook):
 
     def _validate_key(self, key):
         _key = None
+        # FIXME: Fix for editable mode (get called with name=__class__)
+        if key.startswith("__"):
+            return
+
         if key.startswith("_"):
             raise Exception(
                 f"Cannot add Mode with key {key}. Not a valid key. Expects key not to start with an underscore ('_')."
@@ -357,6 +361,10 @@ Got {type(value)} but expecting either:
         """"""
         if __DEBUG__:
             print(f"DEBUG: instance call: set attr with name {name}")
+
+        # FIXME: Fix for editable mode (get called with name=__class__)
+        if name.startswith("__"):
+            return
         print(f"INFO: adding new {name} mode")
         _key = self._validate_key(key=name)
         Modes._validate_value(value=value)
@@ -561,6 +569,10 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
         raise NotImplementedError
 
     def _validate_key(self, key):
+        # FIXME: Fix for editable mode (get called with name=__class__)
+        if key.startswith("__"):
+            return
+
         if key.startswith("_"):
             raise Exception(
                 f"Cannot add attribute with key {key}. Not a valid key. Expects key not to start with an underscore ('_')."
