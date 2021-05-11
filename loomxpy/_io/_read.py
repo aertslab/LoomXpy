@@ -127,8 +127,7 @@ def _read_scope_v1_rna_loom(
             key=embedding.name,
             value=_embedding_df,
             name=embedding.name,
-            id=int(embedding.id),
-            default=int(embedding.id) == -1,
+            metadata=embedding,
         )
     ## Add clusterings
     for clustering in metadata.clusterings:

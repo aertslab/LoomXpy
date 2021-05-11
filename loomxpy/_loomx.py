@@ -1,7 +1,7 @@
 from typing import Tuple
 
-from ._s7 import S7
-from ._mode import Modes
+from loomxpy._s7 import S7
+from loomxpy._mode import Modes
 
 
 class LoomX(S7):

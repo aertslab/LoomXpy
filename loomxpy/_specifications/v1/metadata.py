@@ -1,4 +1,5 @@
-from dataclasses_json import dataclass_json
+from enum import Enum
+from dataclasses_json import dataclass_json, config, DataClassJsonMixin, cfg
 from dataclasses import dataclass, field
 from typing import Optional, List
 
@@ -7,28 +8,79 @@ GLOBAL_ATTRIBUTE_KEY = "MetaData"
 
 @dataclass_json
 @dataclass
-class Annotation:
+class Annotation(DataClassJsonMixin):
     name: str
     values: List[str]
 
 
 @dataclass_json
 @dataclass
-class Metric:
+class Metric(DataClassJsonMixin):
     name: str
+
+
+class ProjectionMethod(Enum):
+    PCA = 0
+    TSNE = 1
+    UMAP = 2
 
 
 @dataclass_json
 @dataclass
-class Embedding:
-    id: int
-    name: str
+class Embedding(DataClassJsonMixin):
+    _id: int = field(metadata=config(field_name="id"))
+    _name: str = field(metadata=config(field_name="name"))
+    _default: str = field(
+        default=None,
+        metadata=config(
+            field_name="default", exclude=cfg.Exclude.ALWAYS
+        ),  # has to be exluded since not part of SCope gRPC API
+    )
+    _projection_method: ProjectionMethod = field(
+        default=None,
+        metadata=config(
+            field_name="projection_method", exclude=cfg.Exclude.ALWAYS
+        ),  # has to be exluded since not part of SCope gRPC API
+    )
+
+    def __post_init__(self):
+        if self._projection_method is not None:
+            if "pca" in self._name.lower():
+                self._projection_method = ProjectionMethod.PCA
+            elif "tsne" in self._name.lower():
+                self._projection_method = ProjectionMethod.TSNE
+            elif "umap" in self._name.lower():
+                self._projection_method = ProjectionMethod.UMAP
+
+    @property
+    def id(self):
+        return int(self._id)
+
+    @property
+    def default(self):
+        if self._default is None:
+            return int(self._id) == -1
+        return False
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name = value
+
+    @property
+    def projection_method(self) -> str:
+        if self._projection_method is None:
+            return "n.a."
+        return self._projection_method.name
 
 
 @dataclass_json
 @dataclass
 class RegulonAllThresholds:
-    tenPercentOfMax: float = None
+    tenPercentOfMax: Optional[float] = None
 
 
 @dataclass_json
@@ -52,7 +104,7 @@ class CellTypeAnnotationVoter:
 
 @dataclass_json
 @dataclass
-class CellTypeAnnotationVotes:
+class CellTypeAnnotationVoters:
     total: int
     voters: List[CellTypeAnnotationVoter]
 
@@ -60,8 +112,8 @@ class CellTypeAnnotationVotes:
 @dataclass_json
 @dataclass
 class CellTypeAnnotationVotes:
-    votes_for: CellTypeAnnotationVotes
-    votes_against: CellTypeAnnotationVotes
+    votes_for: CellTypeAnnotationVoters
+    votes_against: CellTypeAnnotationVoters
 
 
 @dataclass_json

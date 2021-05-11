@@ -12,12 +12,17 @@ from scipy import sparse
 import loompy as lp
 
 from loomxpy import __DEBUG__
-from ._specifications import LoomXMetadataClustering, LoomXMetadataCluster
-from ._s7 import S7
-from ._errors import BadDTypeException
-from ._hooks import WithInitHook
-from ._matrix import DataMatrix
-from .utils import df_to_named_matrix, compress_encode
+from loomxpy._specifications import (
+    ProjectionMethod,
+    LoomXMetadataEmbedding,
+    LoomXMetadataClustering,
+    LoomXMetadataCluster,
+)
+from loomxpy._s7 import S7
+from loomxpy._errors import BadDTypeException
+from loomxpy._hooks import WithInitHook
+from loomxpy._matrix import DataMatrix
+from loomxpy.utils import df_to_named_matrix, compress_encode
 
 
 def custom_formatwarning(msg, *args, **kwargs):
@@ -70,7 +75,12 @@ class Mode(S7):
         return self._observation_attrs
 
     def export(
-        self, filename: str, output_format: str, title: str = None, genome: str = None
+        self,
+        filename: str,
+        output_format: str,
+        title: str = None,
+        genome: str = None,
+        compress_metadata: bool = False,
     ):
         if output_format == "scope_v1":
             # Init
@@ -89,8 +99,8 @@ class Mode(S7):
                 "Genome": genome,
             }
             # Add row attributes (in Loom specifications)
-            for k, attr in self._feature_attrs:
-                _row_attrs[k] = attr.values
+            for _attr_key, _attr in self._feature_attrs:
+                _row_attrs[_attr_key] = _attr.values
 
             # Add columns attributes (in Loom specifications)
             _default_embedding = None
@@ -98,33 +108,33 @@ class Mode(S7):
             _embeddings_Y = pd.DataFrame(index=self._data_matrix._observation_names)
             _clusterings = pd.DataFrame(index=self._data_matrix._observation_names)
 
-            for k, attr in self._observation_attrs:
-                if attr.attr_type.value == AttributeType.ANNOTATION.value:
+            for _attr_key, _attr in self._observation_attrs:
+                if _attr.attr_type.value == AttributeType.ANNOTATION.value:
                     # Categorical not valid, ndarray is required
-                    _col_attrs[k] = np.asarray(attr.values)
+                    _col_attrs[_attr_key] = np.asarray(_attr.values)
                     _global_attrs["MetaData"]["annotations"].append(
                         {
-                            "name": k,
+                            "name": _attr_key,
                             "values": list(
                                 map(
                                     lambda x: x.item()
                                     if type(x).__module__ == "numpy"
                                     else x,
                                     sorted(
-                                        np.unique(attr.values),
+                                        np.unique(_attr.values),
                                         reverse=False,
                                     ),
                                 )
                             ),
                         }
                     )
-                if attr.attr_type.value == AttributeType.METRIC.value:
-                    _col_attrs[k] = attr.values
-                    _global_attrs["MetaData"]["metrics"].append({"name": k})
+                if _attr.attr_type.value == AttributeType.METRIC.value:
+                    _col_attrs[_attr_key] = np.asarray(_attr.values)
+                    _global_attrs["MetaData"]["metrics"].append({"name": _attr_key})
 
-                if attr.attr_type.value == AttributeType.EMBEDDING.value:
-                    _attr: EmbeddingAttribute = attr.copy()
-                    _data = attr.data.loc[:, 0:1]
+                if _attr.attr_type.value == AttributeType.EMBEDDING.value:
+                    _attr: EmbeddingAttribute
+                    _data = _attr.data.iloc[:, 0:2]
                     _data.columns = ["_X", "_Y"]
 
                     # Number of embeddings (don't count the default embedding since this will be use to determine the id of the embedding)
@@ -170,49 +180,44 @@ class Mode(S7):
                             "id": str(
                                 _embedding_id
                             ),  # TODO: type not consistent with clusterings
-                            "name": k,
+                            "name": _attr.name,
                         }
                     )
 
-                if attr.attr_type.value == AttributeType.CLUSTERING.value:
-                    if attr.name is None:
+                    if _attr.default:
+                        _default_embedding = _data
+
+                if _attr.attr_type.value == AttributeType.CLUSTERING.value:
+                    _attr: ClusteringAttribute
+                    if _attr.name is None:
                         raise Exception(
-                            f"The clustering with key '{attr.key}' does not have a name. This is required when exporting to SCope."
+                            f"The clustering with key '{_attr.key}' does not have a name. This is required when exporting to SCope."
                         )
-                    _col_name = attr.data.columns[0]
+                    _col_name = (
+                        _attr.data.columns[0]
+                        if isinstance(_attr, pd.DataFrame)
+                        else _attr.data.name
+                    )
                     _num_clusterings = len(_global_attrs["MetaData"]["clusterings"])
                     _clustering_id = (
                         0 if _num_clusterings == 0 else _num_clusterings + 1
                     )
                     _clusterings = pd.merge(
                         _clusterings,
-                        attr.data.rename(columns={_col_name: str(_clustering_id)}),
+                        _attr.data.rename({_col_name: str(_clustering_id)}),
                         left_index=True,
                         right_index=True,
                     )
                     _global_attrs["MetaData"]["clusterings"].append(
-                        {
-                            "id": _clustering_id,
-                            # "key": cluster.key,
-                            "name": attr.name,
-                            "group": "",
-                            "clusters": [],
-                            "clusterMarkerMetrics": [],
-                        }
+                        LoomXMetadataClustering.from_dict(
+                            {"id": _clustering_id, **_attr.metadata.to_dict()}
+                        ).to_dict()
                     )
-                    cluster: Cluster
-                    for k, cluster in self._oa_clusterings.get_attribute(key=attr.key):
-                        _global_attrs["MetaData"]["clusterings"][_clustering_id][
-                            "clusters"
-                        ].append(
-                            {
-                                "id": cluster.id.item(),
-                                # "name": cluster.name,
-                                "description": cluster.description,
-                            }
-                        )
+
             _row_attrs["Gene"] = np.asarray(self._data_matrix._feature_names)
             _col_attrs["CellID"] = np.asarray(self._data_matrix._observation_names)
+
+            # If no default embedding, use the first embedding as default
             if _default_embedding is None:
                 _col_attrs["Embedding"] = df_to_named_matrix(
                     df=pd.DataFrame(
@@ -242,13 +247,20 @@ class Mode(S7):
                         _global_attrs["MetaData"]["embeddings"],
                     )
                 )
+            else:
+                _col_attrs["Embedding"] = df_to_named_matrix(df=_default_embedding)
+
             _col_attrs["Embeddings_X"] = df_to_named_matrix(df=_embeddings_X)
             _col_attrs["Embeddings_Y"] = df_to_named_matrix(df=_embeddings_Y)
             _col_attrs["Clusterings"] = df_to_named_matrix(
                 df=_clusterings.astype(np.int16)
             )
             _global_attrs["MetaData"] = json.dumps(_global_attrs["MetaData"])
-            _global_attrs["MetaData"] = compress_encode(value=_global_attrs["MetaData"])
+
+            if compress_metadata:
+                _global_attrs["MetaData"] = compress_encode(
+                    value=_global_attrs["MetaData"]
+                )
             lp.create(
                 filename=filename,
                 layers=self._data_matrix._data_matrix.transpose(),
@@ -1037,54 +1049,48 @@ class ObservationMetricAttributes(ObservationAttributes, MetricAttributes):
         super()._add_item_by_value(value=_attr)
 
 
-class ProjectionMethod(Enum):
-    PCA = 0
-    TSNE = 1
-    UMAP = 2
-
-
 class EmbeddingAttribute(Attribute):
     def __init__(
         self,
-        id: int = None,
-        default: bool = False,
-        projection_method: ProjectionMethod = None,
+        metadata: LoomXMetadataEmbedding,
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self._id = id
-        self._default = default
-        self._projection_method = projection_method
+        self._metadata = metadata
 
     @property
     def id(self) -> int:
-        return self._id
+        return self._metadata._id
 
     @id.setter
-    def id(self, value: int):
-        self.int = value
+    def id(self, value: int) -> None:
+        self._metadata._id = value
 
     @property
     def default(self) -> bool:
-        return self._default
+        return self._metadata.default
 
     @default.setter
-    def default(self, value: bool):
-        self._default = value
+    def default(self, value: bool) -> None:
+        self._metadata.default = value
 
     @property
     def projection_method(self) -> str:
-        return self._projection_method
+        return self._metadata.projection_metod
 
     @projection_method.setter
-    def project_method(self, value: str):
-        self._projection_method = value
+    def projection_method(self, value: str):
+        self._metadata.projection_metod = value
 
     def __repr__(self):
+        try:
+            _projection_method = ProjectionMethod(self._metadata.projection_method).name
+        except:
+            _projection_method = "n.a."
         return f"""
 {super().__repr__()}
-default: {self._default}
-projection method: {ProjectionMethod(self._projection_method).name}
+default: {self._metadata._default}
+projection method: {_projection_method}
         """
 
 
@@ -1103,22 +1109,13 @@ class ObservationEmbeddingAttributes(ObservationAttributes, EmbeddingAttributes)
         value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
-        id: int = None,
-        default: bool = False,
-        projection_method: ProjectionMethod = None,
+        metadata: LoomXMetadataEmbedding = None,
     ):
         super()._validate_key(key=key)
         super()._validate_value(value=value)
 
-        _projection_method = None
-        if projection_method:
-            _projection_method = projection_method
-        elif "pca" in key.lower() or (name is not None and "pca" in name.lower()):
-            _projection_method = ProjectionMethod.PCA
-        elif "tsne" in key.lower() or (name is not None and "tsne" in name.lower()):
-            _projection_method = ProjectionMethod.TSNE
-        elif "umap" in key.lower() or (name is not None and "umap" in name.lower()):
-            _projection_method = ProjectionMethod.UMAP
+        if metadata is None:
+            metadata = self.make_metadata(key=key, value=value, name=name)
 
         _attr = EmbeddingAttribute(
             key=key,
@@ -1128,13 +1125,26 @@ class ObservationEmbeddingAttributes(ObservationAttributes, EmbeddingAttributes)
             data=value,
             name=name,
             description=description,
-            # specific
-            id=id,
-            default=default,
-            projection_method=_projection_method,
+            metadata=metadata,
         )
         self._mode._observation_attrs._add_item(key=key, value=_attr)
         super()._add_item_by_value(value=_attr)
+
+    def make_metadata(
+        self, key: str, value: Union[pd.DataFrame, pd.Series], name: str = None
+    ):
+        _embedding_id = len(
+            list(
+                filter(
+                    lambda a: a[1].attr_type == AttributeType.EMBEDDING
+                    and int(a[1].id) > 0,
+                    self._mode.o,
+                )
+            )
+        )
+        return LoomXMetadataEmbedding.from_dict(
+            {"id": _embedding_id, "name": key if name is None else name}
+        )
 
 
 class ClusteringAttribute(Attribute):
@@ -1207,7 +1217,7 @@ class ClusteringAttributeIterator:
         if self._n < len(self._attr.clusters):
             current_key = self._n
             self._n += 1
-            return current_key, self._attr.clusters[self._n]
+            return current_key, self._attr.clusters[current_key]
         else:
             raise StopIteration
 
