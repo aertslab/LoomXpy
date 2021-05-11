@@ -1,6 +1,7 @@
 import json
 import zlib
 import base64
+import functools
 import pandas as pd
 import numpy as np
 import loompy as lp
@@ -12,6 +13,8 @@ from loomxpy._loomx import LoomX
 from loomxpy._mode import Mode, ModeType
 from loomxpy._specifications.v1.metadata import (
     Metadata as LoomXMetadataV1,
+    Clustering as LoomXMetadataV1Clustering,
+    Cluster as LoomXMetadataV1Cluster,
     GLOBAL_ATTRIBUTE_KEY as GLOBAL_ATTRIBUTE_KEY_V1,
 )
 
@@ -70,6 +73,7 @@ def _read_scope_v1_rna_loom(
     # Create the LoomX in-memory object
     ## Add the expression matrix in the RNA mode
     _lx = LoomX()
+    print("Adding data matrix...")
     _lx.modes.rna = (
         sparse.csr_matrix(_matrix).transpose(),
         loom_connection.ra["Gene"],
@@ -78,6 +82,7 @@ def _read_scope_v1_rna_loom(
     ## Add observation (o) attributes
     ### Add annotations
     try:
+        print("Adding annotations...")
         for annotation in metadata.annotations:
             _lx.modes.rna.o.annotations.add(
                 key=annotation.name,
@@ -97,6 +102,7 @@ def _read_scope_v1_rna_loom(
         )
     ### Add metrics
     try:
+        print("Adding metrics...")
         for metric in metadata.metrics:
             _lx.modes.rna.o.metrics.add(
                 key=metric.name,
@@ -115,32 +121,77 @@ def _read_scope_v1_rna_loom(
             "You can force the conversion of the metrics to numerical by setting the parameter `force_conversion={'metrics': True}`"
         )
     ### Add embeddings
-    for embedding in metadata.embeddings:
-        _embedding_df = pd.DataFrame(
-            {
-                "_X": loom_connection.ca["Embeddings_X"][str(embedding.id)],
-                "_Y": loom_connection.ca["Embeddings_Y"][str(embedding.id)],
-            },
-            index=_lx.modes.rna.X._observation_names,
-        )
-        _lx.modes.rna.o.embeddings.add(
-            key=embedding.name,
-            value=_embedding_df,
-            name=embedding.name,
-            metadata=embedding,
-        )
-    ## Add clusterings
-    for clustering in metadata.clusterings:
-        _lx.modes.rna.o.clusterings.add(
-            key=clustering.name,
-            name=clustering.name,
-            value=pd.Series(
-                data=loom_connection.ca["Clusterings"][str(clustering.id)],
+    if "Embeddings_X" in loom_connection.ca and "Embeddings_Y" in loom_connection.ca:
+        print("Adding embeddings...")
+        for embedding in metadata.embeddings:
+            _embedding_df = pd.DataFrame(
+                {
+                    "_X": loom_connection.ca["Embeddings_X"][str(embedding.id)],
+                    "_Y": loom_connection.ca["Embeddings_Y"][str(embedding.id)],
+                },
                 index=_lx.modes.rna.X._observation_names,
-                name=str(clustering.id),
-            ),
-            metadata=clustering,
+            )
+            _lx.modes.rna.o.embeddings.add(
+                key=embedding.name,
+                value=_embedding_df,
+                name=embedding.name,
+                metadata=embedding,
+            )
+    ## Add clusterings
+    if "Clusterings" in loom_connection.ca:
+        print("Adding clusterings...")
+        for clustering in metadata.clusterings:
+            _lx.modes.rna.o.clusterings.add(
+                key=clustering.name,
+                name=clustering.name,
+                value=pd.Series(
+                    data=loom_connection.ca["Clusterings"][str(clustering.id)],
+                    index=_lx.modes.rna.X._observation_names,
+                    name=str(clustering.id),
+                ),
+                metadata=clustering,
+            )
+
+    # # Add cluster markers
+    clustering_attr: LoomXMetadataV1Clustering
+    for _, clustering_attr in _lx.modes.rna.o.clusterings:
+        # Make markers table in long format (cluster, <metrics>)
+        markers_df = (
+            functools.reduce(
+                lambda left, right: pd.merge(
+                    left, right, on=["index", "variable"], how="left"
+                ),
+                [
+                    pd.DataFrame(
+                        loom_connection.ra.ClusterMarkers_0,
+                        index=loom_connection.ra.Gene,
+                    )
+                    .reset_index()
+                    .melt("index")
+                    .rename(columns={"value": "is_marker"})
+                ]
+                + [
+                    pd.DataFrame(
+                        loom_connection.ra[
+                            f"ClusterMarkers_{clustering_attr.id}_{metric.accessor}"
+                        ],
+                        index=loom_connection.ra.Gene,
+                    )
+                    .reset_index()
+                    .melt("index")
+                    .rename(columns={"value": metric.accessor})
+                    for metric in clustering_attr.clusterMarkerMetrics
+                ],
+            )
+            .set_index("index")
+            .rename(columns={"variable": "cluster"})
+            .query("is_marker == 1")
+            .drop(columns=["is_marker"])
         )
+        cluster: LoomXMetadataV1Cluster
+        for cluster in clustering_attr.clusters:
+            cluster.markers = markers_df.query(f"cluster == '{cluster.id}'")
+
     return _lx
 
 

@@ -4,6 +4,7 @@ import json
 import abc
 import warnings
 from typing import MutableMapping, List, Union
+from functools import reduce
 from enum import Enum
 
 import pandas as pd
@@ -202,9 +203,14 @@ class Mode(S7):
                     _clustering_id = (
                         0 if _num_clusterings == 0 else _num_clusterings + 1
                     )
+                    _clustering_data = (
+                        _attr.data.rename(columns={_col_name: str(_clustering_id)})
+                        if isinstance(_attr.data, pd.DataFrame)  # pd.DataFrame
+                        else _attr.data.rename(str(_clustering_id))  # pd.Series
+                    )
                     _clusterings = pd.merge(
                         _clusterings,
-                        _attr.data.rename({_col_name: str(_clustering_id)}),
+                        _clustering_data,
                         left_index=True,
                         right_index=True,
                     )
@@ -1198,6 +1204,14 @@ number of clusters: {len(self._metadata.clusters)}
         self._metadata.clusters = value
 
     @property
+    def clusterMarkerMetrics(self):
+        return self._metadata.clusterMarkerMetrics
+
+    @property
+    def markers(self):
+        return self._metadata.markers
+
+    @property
     def metadata(self) -> LoomXMetadataClustering:
         return self._metadata
 
@@ -1258,12 +1272,12 @@ class ObservationClusteringAttributes(ObservationAttributes, ClusteringAttribute
         super()._add_item_by_value(value=_attr)
 
     def make_metadata(self, key: str, value: Union[pd.DataFrame, pd.Series], name: str):
-        clusters = []
+        _clusters = []
         for cluster_id in sorted(
             np.unique(value.values).astype(int),
             reverse=False,
         ):
-            clusters.append(LoomXMetadataCluster(id=cluster_id))
+            _clusters.append(LoomXMetadataCluster(id=cluster_id))
             super().__setattr__(
                 f"cluster_{cluster_id}", LoomXMetadataCluster(id=cluster_id)
             )
@@ -1274,4 +1288,6 @@ class ObservationClusteringAttributes(ObservationAttributes, ClusteringAttribute
                 )
             )
         )
-        return LoomXMetadataClustering(id=_clustering_id, name=key, clusters=clusters)
+        return LoomXMetadataClustering.from_dict(
+            {"id": _clustering_id, "name": key, "clusters": _clusters}
+        )

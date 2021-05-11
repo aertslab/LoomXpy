@@ -1,4 +1,5 @@
 from enum import Enum
+import pandas as pd
 from dataclasses_json import dataclass_json, config, DataClassJsonMixin, cfg
 from dataclasses import dataclass, field
 from typing import Optional, List
@@ -30,13 +31,14 @@ class ProjectionMethod(Enum):
 class Embedding(DataClassJsonMixin):
     _id: int = field(metadata=config(field_name="id"))
     _name: str = field(metadata=config(field_name="name"))
-    _default: str = field(
+    # Attributes exluded from the metadata
+    _default: Optional[bool] = field(
         default=None,
         metadata=config(
             field_name="default", exclude=cfg.Exclude.ALWAYS
         ),  # has to be exluded since not part of SCope gRPC API
     )
-    _projection_method: ProjectionMethod = field(
+    _projection_method: Optional[ProjectionMethod] = field(
         default=None,
         metadata=config(
             field_name="projection_method", exclude=cfg.Exclude.ALWAYS
@@ -154,6 +156,11 @@ class Cluster(DataClassJsonMixin):
     _cell_type_annotation: List[CellTypeAnnotation] = field(
         default_factory=lambda: [], metadata=config(field_name="cell_type_annotation")
     )
+    # Attributes exluded from the metadata
+    _markers: Optional[pd.DataFrame] = field(
+        default=None,
+        metadata=config(field_name="markers", exclude=cfg.Exclude.ALWAYS),
+    )
 
     @property
     def id(self):
@@ -183,15 +190,70 @@ class Cluster(DataClassJsonMixin):
     def description(self, value):
         self._description = value
 
+    @property
+    def markers(self):
+        return self._markers
+
+    @markers.setter
+    def markers(self, value: pd.DataFrame):
+        self._markers = value
+
 
 @dataclass_json
 @dataclass
 class Clustering(DataClassJsonMixin):
-    id: int
-    group: str
-    name: str
-    clusters: List[Cluster]
-    clusterMarkerMetrics: List[ClusterMarkerMetric] = field(default_factory=lambda: [])
+    _id: int = field(metadata=config(field_name="id"))
+    _group: str = field(metadata=config(field_name="group"))
+    _name: str = field(metadata=config(field_name="name"))
+    _clusters: List[Cluster] = field(metadata=config(field_name="clusters"))
+    _clusterMarkerMetrics: List[ClusterMarkerMetric] = field(
+        default_factory=lambda: [], metadata=config(field_name="clusterMarkerMetrics")
+    )
+    # Attributes exluded from the metadata
+    _markers: Optional[pd.DataFrame] = field(
+        default=None,
+        metadata=config(field_name="markers", exclude=cfg.Exclude.ALWAYS),
+    )
+
+    @property
+    def id(self) -> int:
+        return self._id
+
+    @id.setter
+    def id(self, value):
+        raise Exception("The ID of the clustering cannot be changed.")
+
+    @property
+    def group(self) -> str:
+        return self._group
+
+    @group.setter
+    def group(self, value: str) -> None:
+        self._group = value
+
+    @property
+    def name(self):
+        if self._name is not None:
+            return self._name
+        return f"Unannotated Clustering {self._id}"
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self._name = value
+
+    @property
+    def clusters(self) -> List[Cluster]:
+        return self._clusters
+
+    @property
+    def clusterMarkerMetrics(self) -> List[ClusterMarkerMetric]:
+        return self._clusterMarkerMetrics
+
+    @property
+    def markers(self):
+        if self._markers is None:
+            self._markers = pd.concat([cluster.markers for cluster in self._clusters])
+        return self._markers
 
 
 @dataclass_json
