@@ -39,7 +39,7 @@ class RegulonThreshold:
     defaultThresholdName: str
     allThresholds: RegulonAllThresholds
     motifData: str
-    motifVersion: Optional[str] = None
+    motifVersion: Optional[str] = field(default="")
 
 
 @dataclass_json
@@ -73,7 +73,7 @@ class CellTypeAnnotationData:
     obo_id: str
     ols_iri: str
     annotation_label: str
-    markers: ["ey"]
+    markers: field(default_factory=lambda: [])
     publication: str
     comment: str
 
@@ -96,29 +96,57 @@ class ClusterMarkerMetric:
 
 @dataclass_json
 @dataclass
-class Cluster:
-    id: int
-    description: str
-    clusterMarkerMetrics: List[ClusterMarkerMetric] = field(default_factory=lambda: [])
-    cell_type_annotation: List[CellTypeAnnotation] = field(default_factory=lambda: [])
+class Cluster(DataClassJsonMixin):
+    _id: int = field(metadata=config(field_name="id"))
+    _description: str = field(default="", metadata=config(field_name="description"))
+    _cell_type_annotation: List[CellTypeAnnotation] = field(
+        default_factory=lambda: [], metadata=config(field_name="cell_type_annotation")
+    )
+
+    @property
+    def id(self):
+        return self._id
+
+    @id.setter
+    def id(self, value):
+        raise Exception("The ID of the cluster cannot be changed.")
+
+    @property
+    def name(self):
+        if self._name is not None:
+            return self._name
+        return f"Unannotated Cluster {self._id}"
+
+    @name.setter
+    def name(self, value):
+        self._name = value
+
+    @property
+    def description(self):
+        if self._description is not None:
+            return self._description
+        return self.name
+
+    @description.setter
+    def description(self, value):
+        self._description = value
 
 
 @dataclass_json
 @dataclass
-class Clustering:
+class Clustering(DataClassJsonMixin):
     id: int
     group: str
     name: str
     clusters: List[Cluster]
+    clusterMarkerMetrics: List[ClusterMarkerMetric] = field(default_factory=lambda: [])
 
 
 @dataclass_json
 @dataclass
 class Metadata:
-    metrics: Optional[List[Metric]] = field(default_factory=lambda: [])
-    annotations: Optional[List[Annotation]] = field(default_factory=lambda: [])
-    embeddings: Optional[List[Embedding]] = field(default_factory=lambda: [])
-    regulonThresholds: Optional[List[RegulonThreshold]] = field(
-        default_factory=lambda: []
-    )
-    clusterings: Optional[List[Clustering]] = field(default_factory=lambda: [])
+    metrics: List[Metric]
+    annotations: List[Annotation]
+    embeddings: List[Embedding]
+    clusterings: Optional[List[Clustering]]
+    regulonThresholds: List[RegulonThreshold] = field(default_factory=lambda: [])

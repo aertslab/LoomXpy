@@ -12,6 +12,7 @@ from scipy import sparse
 import loompy as lp
 
 from loomxpy import __DEBUG__
+from ._specifications import LoomXMetadataClustering, LoomXMetadataCluster
 from ._s7 import S7
 from ._errors import BadDTypeException
 from ._hooks import WithInitHook
@@ -1136,51 +1137,14 @@ class ObservationEmbeddingAttributes(ObservationAttributes, EmbeddingAttributes)
         super()._add_item_by_value(value=_attr)
 
 
-class Cluster:
-    def __init__(self, id: int, name: str = None, description: str = None):
-        self._id = id
-        self._name = name
-        self._description = description
-
-    @property
-    def id(self):
-        return self._id
-
-    @id.setter
-    def id(self, value):
-        raise Exception("The ID of the cluster cannot be changed.")
-
-    @property
-    def name(self):
-        if self._name is not None:
-            return self._name
-        return f"Unannotated Cluster {self._id}"
-
-    @name.setter
-    def name(self, value):
-        self._name = value
-
-    @property
-    def description(self):
-        if self._description is not None:
-            return self._description
-        return self.name
-
-    @description.setter
-    def description(self, value):
-        self._description = value
-
-
 class ClusteringAttribute(Attribute):
-    def __init__(self, id: int = None, group: str = None, **kwargs):
+    def __init__(
+        self,
+        metadata: LoomXMetadataClustering = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
-        self._id = id
-        self._group = group
-        self._cluster_ids = sorted(
-            np.unique(self._data.values).astype(int),
-            reverse=False,
-        )
-        self._make_clusters()
+        self._metadata = metadata
 
     def __iter__(self):
         """"""
@@ -1193,25 +1157,39 @@ class ClusteringAttribute(Attribute):
     def __getattribute__(self, name):
         return super().__getattribute__(name)
 
+    def __repr__(self):
+        return f"""
+{super().__repr__()}
+number of clusters: {len(self._metadata.clusters)}
+        """
+
     @property
     def id(self):
-        return self._id
+        return self._metadata.id
 
     @id.setter
     def id(self, value: int):
-        self._id = value
+        self._metadata.id = value
 
     @property
     def group(self):
-        return self._group
+        return self._metadata.group
 
     @group.setter
     def group(self, value: str):
-        self._group = value
+        self._metadata.group = value
 
-    def _make_clusters(self):
-        for cluster_id in self._cluster_ids:
-            super().__setattr__(f"cluster_{cluster_id}", Cluster(id=cluster_id))
+    @property
+    def clusters(self):
+        return self._metadata.clusters
+
+    @clusters.setter
+    def clusters(self, value: List[LoomXMetadataCluster]):
+        self._metadata.clusters = value
+
+    @property
+    def metadata(self) -> LoomXMetadataClustering:
+        return self._metadata
 
 
 class ClusteringAttributeIterator:
@@ -1226,10 +1204,10 @@ class ClusteringAttributeIterator:
         return self
 
     def __next__(self):
-        if self._n < len(self._attr._cluster_ids):
-            current_key = self._attr._cluster_ids[self._n]
+        if self._n < len(self._attr.clusters):
+            current_key = self._n
             self._n += 1
-            return current_key, self._attr.__getattribute__(f"cluster_{current_key}")
+            return current_key, self._attr.clusters[self._n]
         else:
             raise StopIteration
 
@@ -1249,9 +1227,7 @@ class ObservationClusteringAttributes(ObservationAttributes, ClusteringAttribute
         value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
-        # specific
-        id: int = None,
-        group: str = None,
+        metadata: LoomXMetadataClustering = None,
     ):
         super()._validate_key(key=key)
         super()._validate_value(value=value)
@@ -1264,8 +1240,28 @@ class ObservationClusteringAttributes(ObservationAttributes, ClusteringAttribute
             data=value,
             name=name,
             description=description,
-            id=id,
-            group=group,
+            metadata=self.make_metadata(key=key, value=value, name=name)
+            if metadata is None
+            else metadata,
         )
         self._mode._observation_attrs._add_item(key=key, value=_attr)
         super()._add_item_by_value(value=_attr)
+
+    def make_metadata(self, key: str, value: Union[pd.DataFrame, pd.Series], name: str):
+        clusters = []
+        for cluster_id in sorted(
+            np.unique(value.values).astype(int),
+            reverse=False,
+        ):
+            clusters.append(LoomXMetadataCluster(id=cluster_id))
+            super().__setattr__(
+                f"cluster_{cluster_id}", LoomXMetadataCluster(id=cluster_id)
+            )
+        _clustering_id = len(
+            list(
+                filter(
+                    lambda a: a[1].attr_type == AttributeType.CLUSTERING, self._mode.o
+                )
+            )
+        )
+        return LoomXMetadataClustering(id=_clustering_id, name=key, clusters=clusters)

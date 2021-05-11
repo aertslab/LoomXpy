@@ -4,27 +4,32 @@ import base64
 import pandas as pd
 import numpy as np
 import loompy as lp
-from typing import NamedTuple, Dict
+from typing import NamedTuple, Dict, Union, Tuple
 from scipy import sparse
 
 from loomxpy._errors import BadDTypeException
 from loomxpy._loomx import LoomX
 from loomxpy._mode import Mode, ModeType
-from loomxpy._specifications import LoomXMetadata, GLOBAL_ATTRIBUTE_KEY
+from loomxpy._specifications.v1.metadata import (
+    Metadata as LoomXMetadataV1,
+    GLOBAL_ATTRIBUTE_KEY as GLOBAL_ATTRIBUTE_KEY_V1,
+)
 
 
 def decompress_metadata(metadata: str):
     try:
         metadata = metadata.decode("ascii")
-        return json.loads(zlib.decompress(base64.b64decode(s=meta)))
+        return json.loads(zlib.decompress(base64.b64decode(s=metadata)))
     except AttributeError:
         return json.loads(
-            zlib.decompress(base64.b64decode(meta.encode("ascii"))).decode("ascii")
+            zlib.decompress(base64.b64decode(metadata.encode("ascii"))).decode("ascii")
         )
 
 
-def get_metadata_from_loom_connection(loom_connection: lp.LoomConnection):
-    _metadata = loom_connection.attrs[GLOBAL_ATTRIBUTE_KEY]
+def get_metadata_from_loom_connection(
+    loom_connection: lp.LoomConnection, metadata_global_attribute_key: str
+):
+    _metadata = loom_connection.attrs[metadata_global_attribute_key]
     if type(_metadata) is np.ndarray:
         _metadata = _metadata[0]
     try:
@@ -33,11 +38,28 @@ def get_metadata_from_loom_connection(loom_connection: lp.LoomConnection):
         return decompress_metadata(metadata=_metadata)
 
 
-def _read_scope_rna_loom(loom_connection: lp.LoomConnection, force_conversion: Dict):
+def _read_scope_metadata(
+    loom_connection: lp.LoomConnection,
+) -> Union[Tuple["v1", Union[LoomXMetadataV1]]]:
     # Read the Metadata from SCope
-    _metadata: LoomXMetadata = LoomXMetadata.from_dict(
-        get_metadata_from_loom_connection(loom_connection=loom_connection)
-    )
+    try:
+        _metadata: LoomXMetadataV1 = LoomXMetadataV1.from_dict(
+            get_metadata_from_loom_connection(
+                loom_connection=loom_connection,
+                metadata_global_attribute_key=GLOBAL_ATTRIBUTE_KEY_V1,
+            )
+        )
+        return "v1", _metadata
+    except:
+        pass
+    raise Exception("Cannot read the LoomX metadata.")
+
+
+def _read_scope_v1_rna_loom(
+    loom_connection: lp.LoomConnection,
+    metadata: LoomXMetadataV1,
+    force_conversion: Dict,
+):
     # Loompy stores the features as rows and the observations as columns
     # LoomX follows Scanpy convention (i.e.: machine learning/statistics standards) i.e.: observations as rows and the features as columns. This requires to transpose the matrix
     _matrix = loom_connection[:, :]
@@ -46,9 +68,9 @@ def _read_scope_rna_loom(loom_connection: lp.LoomConnection, force_conversion: D
     if "CellID" not in loom_connection.ca:
         raise Exception("The loom file is missing a 'CellID' column attribute")
     # Create the LoomX in-memory object
-    ## Add the expression matrix
-    lx = LoomX()
-    lx.modes.rna = (
+    ## Add the expression matrix in the RNA mode
+    _lx = LoomX()
+    _lx.modes.rna = (
         sparse.csr_matrix(_matrix).transpose(),
         loom_connection.ra["Gene"],
         loom_connection.ca["CellID"],
@@ -56,13 +78,13 @@ def _read_scope_rna_loom(loom_connection: lp.LoomConnection, force_conversion: D
     ## Add observation (o) attributes
     ### Add annotations
     try:
-        for annotation in _metadata.annotations:
-            lx.modes.rna.o.annotations.add(
+        for annotation in metadata.annotations:
+            _lx.modes.rna.o.annotations.add(
                 key=annotation.name,
                 name=annotation.name,
                 value=pd.Series(
                     data=loom_connection.ca[annotation.name],
-                    index=lx.modes.rna.X._observation_names,
+                    index=_lx.modes.rna.X._observation_names,
                     name=annotation.name,
                 ),
                 force=force_conversion["annotations"]
@@ -75,13 +97,13 @@ def _read_scope_rna_loom(loom_connection: lp.LoomConnection, force_conversion: D
         )
     ### Add metrics
     try:
-        for metric in _metadata.metrics:
-            lx.modes.rna.o.metrics.add(
+        for metric in metadata.metrics:
+            _lx.modes.rna.o.metrics.add(
                 key=metric.name,
                 name=metric.name,
                 value=pd.Series(
                     data=loom_connection.ca[metric.name],
-                    index=lx.modes.rna.X._observation_names,
+                    index=_lx.modes.rna.X._observation_names,
                     name=metric.name,
                 ),
                 force=force_conversion["metrics"]
@@ -93,22 +115,49 @@ def _read_scope_rna_loom(loom_connection: lp.LoomConnection, force_conversion: D
             "You can force the conversion of the metrics to numerical by setting the parameter `force_conversion={'metrics': True}`"
         )
     ### Add embeddings
-    for embedding in _metadata.embeddings:
+    for embedding in metadata.embeddings:
         _embedding_df = pd.DataFrame(
             {
                 "_X": loom_connection.ca["Embeddings_X"][str(embedding.id)],
                 "_Y": loom_connection.ca["Embeddings_Y"][str(embedding.id)],
             },
-            index=lx.modes.rna.X._observation_names,
+            index=_lx.modes.rna.X._observation_names,
         )
-        lx.modes.rna.o.embeddings.add(
+        _lx.modes.rna.o.embeddings.add(
             key=embedding.name,
             value=_embedding_df,
             name=embedding.name,
             id=int(embedding.id),
             default=int(embedding.id) == -1,
         )
-    return lx
+    ## Add clusterings
+    for clustering in metadata.clusterings:
+        _lx.modes.rna.o.clusterings.add(
+            key=clustering.name,
+            name=clustering.name,
+            value=pd.Series(
+                data=loom_connection.ca["Clusterings"][str(clustering.id)],
+                index=_lx.modes.rna.X._observation_names,
+                name=str(clustering.id),
+            ),
+            metadata=clustering,
+        )
+    return _lx
+
+
+def _read_scope_rna_loom(loom_connection: lp.LoomConnection, force_conversion: Dict):
+    # Read the Metadata from SCope
+    _version, _metadata = _read_scope_metadata(loom_connection=loom_connection)
+    if _version == "v1":
+        _lx = _read_scope_v1_rna_loom(
+            loom_connection=loom_connection,
+            metadata=_metadata,
+            force_conversion=force_conversion,
+        )
+    else:
+        raise Exception("Unable to detect the LoomX version.")
+
+    return _lx
 
 
 def _read_scope_loom(
@@ -138,7 +187,9 @@ def read_loom(
         )
 
     with lp.connect(filename=file_path, mode="r", validate=False) as loom_connection:
-        if GLOBAL_ATTRIBUTE_KEY in loom_connection.attrs:
+        if any(
+            list(map(lambda x: x in loom_connection.attrs, [GLOBAL_ATTRIBUTE_KEY_V1]))
+        ):
             return _read_scope_loom(
                 loom_connection=loom_connection,
                 mode_type=_mode_type,
