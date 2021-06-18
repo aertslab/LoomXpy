@@ -1,0 +1,2 @@
+class BadDTypeException(Exception):
+    pass

@@ -1,8 +1,10 @@
 import os
+import re
 import json
 import abc
 import warnings
-from typing import MutableMapping, List
+from typing import MutableMapping, List, Union
+from functools import reduce
 from enum import Enum
 
 import pandas as pd
@@ -11,10 +13,25 @@ from scipy import sparse
 import loompy as lp
 
 from loomxpy import __DEBUG__
-from ._s7 import S7
-from ._hooks import WithInitHook
-from ._matrix import DataMatrix
-from .utils import df_to_named_matrix, compress_encode
+from loomxpy._specifications import (
+    ProjectionMethod,
+    LoomXMetadataEmbedding,
+    LoomXMetadataClustering,
+    LoomXMetadataCluster,
+)
+from loomxpy._s7 import S7
+from loomxpy._errors import BadDTypeException
+from loomxpy._hooks import WithInitHook
+from loomxpy._matrix import DataMatrix
+from loomxpy.utils import df_to_named_matrix, compress_encode
+
+
+def custom_formatwarning(msg, *args, **kwargs):
+    # ignore everything except the message
+    return str(msg) + "\n"
+
+
+warnings.formatwarning = custom_formatwarning
 
 
 ##########################################
@@ -35,11 +52,13 @@ class Mode(S7):
         self._mode_type = mode_type
         # Data Matrix
         self._data_matrix = data_matrix
+        # Global
+        self._global_attrs = GlobalAttributes(mode=self)
         # Features
         self._feature_attrs = FeatureAttributes(mode=self)
         self._fa_annotations = FeatureAnnotationAttributes(mode=self)
         self._fa_metrics = FeatureMetricAttributes(mode=self)
-        # # Observations
+        # Observations
         self._observation_attrs = ObservationAttributes(mode=self)
         self._oa_annotations = ObservationAnnotationAttributes(mode=self)
         self._oa_metrics = ObservationMetricAttributes(mode=self)
@@ -51,6 +70,10 @@ class Mode(S7):
         return self._data_matrix
 
     @property
+    def g(self):
+        return self._global_attrs
+
+    @property
     def f(self):
         return self._feature_attrs
 
@@ -59,9 +82,15 @@ class Mode(S7):
         return self._observation_attrs
 
     def export(
-        self, filename: str, output_format: str, title: str = None, genome: str = None
+        self,
+        filename: str,
+        output_format: str,
+        title: str = None,
+        genome: str = None,
+        compress_metadata: bool = False,
     ):
         if output_format == "scope_v1":
+            # Init
             _row_attrs: MutableMapping = {}
             _col_attrs: MutableMapping = {}
             _global_attrs: MutableMapping = {
@@ -77,9 +106,8 @@ class Mode(S7):
                 "Genome": genome,
             }
             # Add row attributes (in Loom specifications)
-            for k, attr in self._feature_attrs:
-                _col_name = attr.data.columns[0]
-                _row_attrs[k] = attr.data[_col_name].values
+            for _attr_key, _attr in self._feature_attrs:
+                _row_attrs[_attr_key] = _attr.values
 
             # Add columns attributes (in Loom specifications)
             _default_embedding = None
@@ -87,38 +115,55 @@ class Mode(S7):
             _embeddings_Y = pd.DataFrame(index=self._data_matrix._observation_names)
             _clusterings = pd.DataFrame(index=self._data_matrix._observation_names)
 
-            for k, attr in self._observation_attrs:
-                if attr.attr_type.value == AttributeType.ANNOTATION.value:
-                    _col_name = attr.data.columns[0]
+            for _attr_key, _attr in self._observation_attrs:
+                if _attr.attr_type.value == AttributeType.ANNOTATION.value:
                     # Categorical not valid, ndarray is required
-                    _col_attrs[k] = np.asarray(attr.data[_col_name].values)
+                    _col_attrs[_attr_key] = np.asarray(_attr.values)
                     _global_attrs["MetaData"]["annotations"].append(
                         {
-                            "name": k,
+                            "name": _attr_key,
                             "values": list(
                                 map(
                                     lambda x: x.item()
                                     if type(x).__module__ == "numpy"
                                     else x,
                                     sorted(
-                                        np.unique(attr.data[_col_name].values),
+                                        np.unique(_attr.values),
                                         reverse=False,
                                     ),
                                 )
                             ),
                         }
                     )
-                if attr.attr_type.value == AttributeType.METRIC.value:
-                    _col_name = attr.data.columns[0]
-                    _col_attrs[k] = attr.data[_col_name].values
-                    _global_attrs["MetaData"]["metrics"].append({"name": k})
+                if _attr.attr_type.value == AttributeType.METRIC.value:
+                    _col_attrs[_attr_key] = np.asarray(_attr.values)
+                    _global_attrs["MetaData"]["metrics"].append({"name": _attr_key})
 
-                if attr.attr_type.value == AttributeType.EMBEDDING.value:
-                    _data = attr.data.loc[:, 0:1].copy()
+                if _attr.attr_type.value == AttributeType.EMBEDDING.value:
+                    _attr: EmbeddingAttribute
+                    _data = _attr.data.iloc[:, 0:2]
                     _data.columns = ["_X", "_Y"]
 
-                    _num_embeddings = len(_global_attrs["MetaData"]["embeddings"])
-                    _embedding_id = 0 if _num_embeddings == 0 else _num_embeddings + 1
+                    # Number of embeddings (don't count the default embedding since this will be use to determine the id of the embedding)
+                    _num_embeddings = len(
+                        list(
+                            filter(
+                                lambda x: int(x["id"]) != -1,
+                                _global_attrs["MetaData"]["embeddings"],
+                            )
+                        )
+                    )
+                    _embedding_id = (
+                        _attr.id
+                        if _attr.id is not None
+                        else (
+                            -1
+                            if _attr._default
+                            else 0
+                            if _num_embeddings == 0
+                            else _num_embeddings + 1
+                        )
+                    )
                     _embeddings_X = pd.merge(
                         _embeddings_X,
                         _data["_X"]
@@ -142,49 +187,49 @@ class Mode(S7):
                             "id": str(
                                 _embedding_id
                             ),  # TODO: type not consistent with clusterings
-                            "name": k,
+                            "name": _attr.name,
                         }
                     )
 
-                if attr.attr_type.value == AttributeType.CLUSTERING.value:
-                    if attr.name is None:
+                    if _attr.default:
+                        _default_embedding = _data
+
+                if _attr.attr_type.value == AttributeType.CLUSTERING.value:
+                    _attr: ClusteringAttribute
+                    if _attr.name is None:
                         raise Exception(
-                            f"The clustering with key '{attr.key}' does not have a name. This is required when exporting to SCope."
+                            f"The clustering with key '{_attr.key}' does not have a name. This is required when exporting to SCope."
                         )
-                    _col_name = attr.data.columns[0]
+                    _col_name = (
+                        _attr.data.columns[0]
+                        if isinstance(_attr, pd.DataFrame)
+                        else _attr.data.name
+                    )
                     _num_clusterings = len(_global_attrs["MetaData"]["clusterings"])
                     _clustering_id = (
                         0 if _num_clusterings == 0 else _num_clusterings + 1
                     )
+                    _clustering_data = (
+                        _attr.data.rename(columns={_col_name: str(_clustering_id)})
+                        if isinstance(_attr.data, pd.DataFrame)  # pd.DataFrame
+                        else _attr.data.rename(str(_clustering_id))  # pd.Series
+                    )
                     _clusterings = pd.merge(
                         _clusterings,
-                        attr.data.rename(columns={_col_name: str(_clustering_id)}),
+                        _clustering_data,
                         left_index=True,
                         right_index=True,
                     )
                     _global_attrs["MetaData"]["clusterings"].append(
-                        {
-                            "id": _clustering_id,
-                            # "key": cluster.key,
-                            "name": attr.name,
-                            "group": "",
-                            "clusters": [],
-                            "clusterMarkerMetrics": [],
-                        }
+                        LoomXMetadataClustering.from_dict(
+                            {"id": _clustering_id, **_attr.metadata.to_dict()}
+                        ).to_dict()
                     )
-                    cluster: Cluster
-                    for k, cluster in self._oa_clusterings.get_attribute(key=attr.key):
-                        _global_attrs["MetaData"]["clusterings"][_clustering_id][
-                            "clusters"
-                        ].append(
-                            {
-                                "id": cluster.id.item(),
-                                # "name": cluster.name,
-                                "description": cluster.description,
-                            }
-                        )
+
             _row_attrs["Gene"] = np.asarray(self._data_matrix._feature_names)
             _col_attrs["CellID"] = np.asarray(self._data_matrix._observation_names)
+
+            # If no default embedding, use the first embedding as default
             if _default_embedding is None:
                 _col_attrs["Embedding"] = df_to_named_matrix(
                     df=pd.DataFrame(
@@ -214,13 +259,25 @@ class Mode(S7):
                         _global_attrs["MetaData"]["embeddings"],
                     )
                 )
+            else:
+                _col_attrs["Embedding"] = df_to_named_matrix(df=_default_embedding)
+
             _col_attrs["Embeddings_X"] = df_to_named_matrix(df=_embeddings_X)
             _col_attrs["Embeddings_Y"] = df_to_named_matrix(df=_embeddings_Y)
             _col_attrs["Clusterings"] = df_to_named_matrix(
                 df=_clusterings.astype(np.int16)
             )
+
             _global_attrs["MetaData"] = json.dumps(_global_attrs["MetaData"])
-            _global_attrs["MetaData"] = compress_encode(value=_global_attrs["MetaData"])
+
+            if compress_metadata:
+                _global_attrs["MetaData"] = compress_encode(
+                    value=_global_attrs["MetaData"]
+                )
+
+            for _ga_key, _ga_value in self._global_attrs:
+                _global_attrs[_ga_key] = _ga_value
+
             lp.create(
                 filename=filename,
                 layers=self._data_matrix._data_matrix.transpose(),
@@ -236,11 +293,13 @@ class Mode(S7):
             )
 
 
-class Modes(MutableMapping[str, object], metaclass=WithInitHook):
+class Modes(MutableMapping[str, Mode], metaclass=WithInitHook):
     def __init__(self):
         """"""
         self._keys: List[str] = []
         self._mode_types = [item.value for item in ModeType]
+        # Implemented modes (used here mainly for typing purposes)
+        self.rna: Mode = None
 
     def __setattr__(self, name, value):
         if not hasattr(self, "_initialized"):
@@ -272,6 +331,10 @@ class Modes(MutableMapping[str, object], metaclass=WithInitHook):
 
     def _validate_key(self, key):
         _key = None
+        # FIXME: Fix for editable mode (get called with name=__class__)
+        if key.startswith("__"):
+            return
+
         if key.startswith("_"):
             raise Exception(
                 f"Cannot add Mode with key {key}. Not a valid key. Expects key not to start with an underscore ('_')."
@@ -332,6 +395,10 @@ Got {type(value)} but expecting either:
         """"""
         if __DEBUG__:
             print(f"DEBUG: instance call: set attr with name {name}")
+
+        # FIXME: Fix for editable mode (get called with name=__class__)
+        if name.startswith("__"):
+            return
         print(f"INFO: adding new {name} mode")
         _key = self._validate_key(key=name)
         Modes._validate_value(value=value)
@@ -370,6 +437,89 @@ Got {type(value)} but expecting either:
 ##########################################
 # ATTRIBUTES                             #
 ##########################################
+
+
+class GlobalAttributes(MutableMapping[str, str], metaclass=WithInitHook):
+    def __init__(self, mode: Mode):
+        """"""
+        self._keys: List[str] = []
+        # Implemented modes (used here mainly for typing purposes)
+        self.rna: Mode = mode
+
+    def __setattr__(self, name, value):
+        if not hasattr(self, "_initialized"):
+            if __DEBUG__:
+                print(f"DEBUG: constructor call: set attr with name {name}")
+            super().__setattr__(name, value)
+        else:
+            self.__setitem__(name=name, value=value)
+
+    def __delattr__(self, name: str):
+        self._keys.remove(name)
+        super().__delattr__(name)
+
+    def __iter__(self):
+        """"""
+        return iter(AttributesIterator(self))
+
+    def __len__(self):
+        """"""
+        return len(self._keys)
+
+    def __delitem__(self, name: str) -> None:
+        """"""
+        self.__delattr__(name)
+
+    def __getitem__(self, name: str) -> Mode:
+        """"""
+        return getattr(self, name)
+
+    def __setitem__(self, name: str, value: str) -> None:
+        """"""
+        # FIXME: Fix for editable mode (get called with name=__class__)
+        if name.startswith("__"):
+            return
+
+        if not isinstance(name, str):
+            raise Exception("Not a valid key for GlobalAttribute.")
+
+        if not isinstance(value, str):
+            raise Exception("Not a valid value for GlobalAttribute.")
+
+        self._add_key(key=name)
+        super().__setattr__(name, value)
+
+    def get_attribute(self, key: str):
+        """"""
+        return super().__getattribute__(key)
+
+    def __repr__(self) -> str:
+        _keys = f"{', '.join(self._keys)}" if len(self._keys) > 0 else "none"
+        return f"Global attributes: {_keys}"
+
+    def _add_key(self, key: str):
+        if key not in self._keys:
+            self._keys.append(key)
+
+
+class GlobalAttributesIterator:
+
+    """Class to implement an iterator of Attributes """
+
+    def __init__(self, attrs: GlobalAttributes):
+        self._attrs = attrs
+
+    def __iter__(self):
+        self._n = 0
+        return self
+
+    def __next__(self):
+        if self._n < len(self._attrs._keys):
+            current_key = self._attrs._keys[self._n]
+            self._n += 1
+            return current_key, self._attrs.get_attribute(current_key)
+        else:
+            raise StopIteration
 
 
 class Axis(Enum):
@@ -423,6 +573,15 @@ class Attribute:
     @property
     def data(self):
         return self._data
+
+    @property
+    def values(self):
+        if isinstance(self._data, pd.DataFrame):
+            _col_name = self._data.columns[0]
+            return self._data[_col_name].values
+        if isinstance(self._data, pd.Series):
+            return self._data
+        raise Exception(f"Cannot get values from Attribute with key {self._key}")
 
     @property
     def name(self):
@@ -527,6 +686,10 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
         raise NotImplementedError
 
     def _validate_key(self, key):
+        # FIXME: Fix for editable mode (get called with name=__class__)
+        if key.startswith("__"):
+            return
+
         if key.startswith("_"):
             raise Exception(
                 f"Cannot add attribute with key {key}. Not a valid key. Expects key not to start with an underscore ('_')."
@@ -535,14 +698,24 @@ class Attributes(MutableMapping[str, Attribute], metaclass=WithInitHook):
             raise Exception(
                 f"Cannot add attribute with key of type ({type(key).__name__}) to {type(self).__name__}. Not a valid key. Expects key of type str."
             )
-
-    def _validate_value(self, value):
-        if not isinstance(value, pd.core.frame.DataFrame):
-            raise Exception(
-                f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Expects a pandas.core.frame.DataFrame."
+        # Print a warning in key contains characters not allowed. If any present, this will prevent the user to use dot notation. Brackets access will work.
+        pattern = "^[a-zA-Z0-9_]+$"
+        if not re.match(pattern, key):
+            warnings.warn(
+                f"The key '{key}' won't be accessible using the dot notation (containing special characters other than '_')",
             )
 
-        if not self._is_multi and value.shape[1] > 1:
+    def _validate_value(self, value):
+        if not isinstance(value, pd.DataFrame) and not isinstance(value, pd.Series):
+            raise Exception(
+                f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Expects a pandas.DataFrame or a pandas.Series."
+            )
+
+        if (
+            isinstance(value, pd.DataFrame)
+            and not self._is_multi
+            and value.shape[1] > 1
+        ):
             raise Exception(
                 f"Cannot add attribute of shape {value.shape[1]}. Currently, allows only {type(value).__name__} with maximally 1 feature (i.e.: column)."
             )
@@ -584,31 +757,41 @@ class AnnotationAttributes(Attributes):
             **kwargs,
         )
 
-    def _validate_value(
-        self,
-        value: pd.core.frame.DataFrame,
-        force_conversion_to_categorical: bool = False,
-    ):
+    def _validate_value(self, value: Union[pd.DataFrame, pd.Series], **kwargs):
         if __DEBUG__:
             print(f"DEBUG: _validate_value ({type(self).__name__})")
         super()._validate_value(value=value)
+        _force_conversion_to_categorical = (
+            kwargs["force_conversion_to_categorical"]
+            if "force_conversion_to_categorical" in kwargs
+            else False
+        )
         # Do some checks and processing for attribute of type ANNOTATION
-        if (
-            not force_conversion_to_categorical
-            and not all(value.apply(pd.api.types.is_categorical_dtype))
-            and not all(value.apply(pd.api.types.is_bool_dtype))
-        ):
-            _dtype = value.infer_objects().dtypes[0]
-            raise Exception(
-                f"Expects value to be categorical or bool but its dtype is {_dtype}. You can force the conversion to categorical by using <loomx-instance>.modes.<mode>.annotations.add(*, force=True)."
-            )
+        if not _force_conversion_to_categorical:
+            if (
+                isinstance(value, pd.DataFrame)
+                and not all(value.apply(pd.api.types.is_categorical_dtype))
+                and not all(value.apply(pd.api.types.is_bool_dtype))
+            ) or (
+                isinstance(value, pd.Series)
+                and not pd.api.types.is_categorical_dtype(arr_or_dtype=value)
+                and not pd.api.types.is_bool_dtype(arr_or_dtype=value)
+            ):
+                _dtype = (
+                    value.infer_objects().dtypes[0]
+                    if isinstance(value, pd.DataFrame)
+                    else value.infer_objects().dtype
+                )
+                raise BadDTypeException(
+                    f"Expects value to be categorical or bool but its dtype is {_dtype}. You can force the conversion to categorical by using <loomx-instance>.modes.<mode>.annotations.add(*, force=True)."
+                )
 
     def _normalize_value(
         self,
         name: str,
-        value: pd.core.frame.DataFrame,
+        value: Union[pd.DataFrame, pd.Series],
         force_conversion_to_categorical: bool = False,
-    ):
+    ) -> pd.DataFrame:
         if force_conversion_to_categorical:
             # Convert to Categorical
             warnings.warn(f"Converting {name} annotation to categorical type...")
@@ -627,25 +810,39 @@ class MetricAttributes(Attributes):
             **kwargs,
         )
 
-    def _validate_value(
-        self, value: pd.core.frame.DataFrame, force_conversion_to_numeric: bool = False
-    ):
+    def _validate_value(self, value: Union[pd.DataFrame, pd.Series], **kwargs):
         if __DEBUG__:
             print(f"DEBUG: _validate_value ({type(self).__name__})")
         super()._validate_value(value=value)
+        _force_conversion_to_numeric = (
+            kwargs["force_conversion_to_numeric"]
+            if "force_conversion_to_numeric" in kwargs
+            else False
+        )
         # Do some checks and processing for attribute of type METRIC
-        if not force_conversion_to_numeric and not all(
-            value.apply(pd.api.types.is_numeric_dtype)
-        ):
-            _dtype = value.infer_objects().dtypes[0]
-            raise Exception(f"Expects value to be numeric but its dtype is {_dtype}")
+        if not _force_conversion_to_numeric:
+            if (
+                isinstance(value, pd.DataFrame)
+                and not all(value.apply(pd.api.types.is_numeric_dtype))
+            ) or (
+                isinstance(value, pd.Series)
+                and not pd.api.types.is_numeric_dtype(arr_or_dtype=value)
+            ):
+                _dtype = (
+                    value.infer_objects().dtypes[0]
+                    if isinstance(value, pd.DataFrame)
+                    else value.infer_objects().dtype
+                )
+                raise BadDTypeException(
+                    f"Expects value to be numeric but its dtype is {_dtype}"
+                )
 
     def _normalize_value(
         self,
         name: str,
-        value: pd.core.frame.DataFrame,
+        value: Union[pd.DataFrame, pd.Series],
         force_conversion_to_numeric: bool = False,
-    ):
+    ) -> Union[pd.DataFrame, pd.Series]:
         if force_conversion_to_numeric:
             # Convert to metric
             warnings.warn(f"Converting {name} metric to numeric type...")
@@ -690,14 +887,14 @@ class FeatureAttributes(Attributes):
     def _validate_key(self, key: str):
         super()._validate_key(key=key)
 
-    def _validate_value(self, value: pd.DataFrame, **kwargs):
+    def _validate_value(self, value: Union[pd.DataFrame, pd.Series], **kwargs):
         if __DEBUG__:
             print(f"DEBUG: _validate_value ({type(self).__name__})")
         # Generic validation
         super()._validate_value(value=value)
         # Check if all observations from the given value are present in the DataMatrix of this mode
         _features = self._mode.X._feature_names
-        if not all(np.in1d(value.index.astype(str), _features)):
+        if not all(np.in1d(value.index.astype(str), _features.astype(str))):
             raise Exception(
                 f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Index of the given pandas.core.frame.DataFrame does not fully match the features in DataMatrix of mode."
             )
@@ -720,14 +917,14 @@ class FeatureAttributes(Attributes):
     def annotations(self):
         return self._mode._fa_annotations
 
-    def add_annotation(self, key: str, value: pd.core.frame.DataFrame):
+    def add_annotation(self, key: str, value: Union[pd.DataFrame, pd.Series]):
         self._mode._fa_annotations.add(key=key, value=value)
 
     @property
     def metrics(self):
         return self._mode._fa_metrics
 
-    def add_metric(self, key: str, value: pd.core.frame.DataFrame):
+    def add_metric(self, key: str, value: Union[pd.DataFrame, pd.Series]):
         self._mode._fa_metrics.add(key=key, value=value)
 
 
@@ -740,7 +937,7 @@ class FeatureAnnotationAttributes(FeatureAttributes, AnnotationAttributes):
         """"""
         self.add(key=name, value=value)
 
-    def add(self, key: str, value: pd.core.frame.DataFrame):
+    def add(self, key: str, value: Union[pd.DataFrame, pd.Series]):
         """"""
         super()._validate_key(key=key)
         super()._validate_value(value=value)
@@ -763,11 +960,11 @@ class FeatureMetricAttributes(FeatureAttributes, MetricAttributes):
         """"""
         super().__init__(mode=mode, is_proxy=True)
 
-    def __setitem__(self, name: str, value: pd.core.frame.DataFrame):
+    def __setitem__(self, name: str, value: Union[pd.DataFrame, pd.Series]):
         """"""
         self.add(key=name, value=value)
 
-    def add(self, key: str, value: pd.core.frame.DataFrame):
+    def add(self, key: str, value: Union[pd.DataFrame, pd.Series]):
         """"""
         super()._validate_key(key=key)
         super()._validate_value(value=value)
@@ -827,7 +1024,7 @@ class ObservationAttributes(Attributes):
     def add_annotation(
         self,
         key: str,
-        value: pd.core.frame.DataFrame,
+        value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
         force: bool = False,
@@ -843,7 +1040,7 @@ class ObservationAttributes(Attributes):
     def add_metric(
         self,
         key: str,
-        value: pd.core.frame.DataFrame,
+        value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
         force: bool = False,
@@ -859,7 +1056,7 @@ class ObservationAttributes(Attributes):
     def add_embedding(
         self,
         key: str,
-        value: pd.core.frame.DataFrame,
+        value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
     ) -> None:
@@ -877,7 +1074,7 @@ class ObservationAttributes(Attributes):
     def add_clustering(
         self,
         key: str,
-        value: pd.core.frame.DataFrame,
+        value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
     ):
@@ -924,7 +1121,7 @@ class ObservationMetricAttributes(ObservationAttributes, MetricAttributes):
         """"""
         super().__init__(mode=mode, is_proxy=True)
 
-    def __setitem__(self, name: str, value: pd.core.frame.DataFrame):
+    def __setitem__(self, name: str, value: Union[pd.DataFrame, pd.Series]):
         """"""
         self.add(key=name, value=value)
 
@@ -952,25 +1149,48 @@ class ObservationMetricAttributes(ObservationAttributes, MetricAttributes):
         super()._add_item_by_value(value=_attr)
 
 
-class ProjectionMethod(Enum):
-    PCA = 0
-    TSNE = 1
-    UMAP = 2
-
-
 class EmbeddingAttribute(Attribute):
-    def __init__(self, projection_method: ProjectionMethod = None, **kwargs):
+    def __init__(
+        self,
+        metadata: LoomXMetadataEmbedding,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
-        self._projection_method = projection_method
+        self._metadata = metadata
 
     @property
-    def projection_method(self):
-        return self._projection_method
+    def id(self) -> int:
+        return self._metadata._id
+
+    @id.setter
+    def id(self, value: int) -> None:
+        self._metadata._id = value
+
+    @property
+    def default(self) -> bool:
+        return self._metadata.default
+
+    @default.setter
+    def default(self, value: bool) -> None:
+        self._metadata.default = value
+
+    @property
+    def projection_method(self) -> str:
+        return self._metadata.projection_metod
+
+    @projection_method.setter
+    def projection_method(self, value: str):
+        self._metadata.projection_metod = value
 
     def __repr__(self):
+        try:
+            _projection_method = ProjectionMethod(self._metadata.projection_method).name
+        except:
+            _projection_method = "n.a."
         return f"""
 {super().__repr__()}
-projection method: {ProjectionMethod(self._projection_method).name}
+default: {self._metadata._default}
+projection method: {_projection_method}
         """
 
 
@@ -979,30 +1199,23 @@ class ObservationEmbeddingAttributes(ObservationAttributes, EmbeddingAttributes)
         """"""
         super().__init__(mode=mode, is_proxy=True, is_multi=True)
 
-    def __setitem__(self, name: str, value: pd.core.frame.DataFrame):
+    def __setitem__(self, name: str, value: Union[pd.DataFrame, pd.Series]):
         """"""
         self.add(key=name, value=value)
 
     def add(
         self,
         key: str,
-        value: pd.core.frame.DataFrame,
+        value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
-        projection_method: ProjectionMethod = None,
+        metadata: LoomXMetadataEmbedding = None,
     ):
         super()._validate_key(key=key)
         super()._validate_value(value=value)
 
-        _projection_method = None
-        if projection_method:
-            _projection_method = projection_method
-        elif "pca" in key.lower() or (name is not None and "pca" in name.lower()):
-            _projection_method = ProjectionMethod.PCA
-        elif "tsne" in key.lower() or (name is not None and "tsne" in name.lower()):
-            _projection_method = ProjectionMethod.TSNE
-        elif "umap" in key.lower() or (name is not None and "umap" in name.lower()):
-            _projection_method = ProjectionMethod.UMAP
+        if metadata is None:
+            metadata = self.make_metadata(key=key, value=value, name=name)
 
         _attr = EmbeddingAttribute(
             key=key,
@@ -1012,55 +1225,36 @@ class ObservationEmbeddingAttributes(ObservationAttributes, EmbeddingAttributes)
             data=value,
             name=name,
             description=description,
-            projection_method=_projection_method,
+            metadata=metadata,
         )
         self._mode._observation_attrs._add_item(key=key, value=_attr)
         super()._add_item_by_value(value=_attr)
 
-
-class Cluster:
-    def __init__(self, id: int, name: str = None, description: str = None):
-        self._id = id
-        self._name = name
-        self._description = description
-
-    @property
-    def id(self):
-        return self._id
-
-    @id.setter
-    def id(self, value):
-        raise Exception("The ID of the clustering cannot be changed.")
-
-    @property
-    def name(self):
-        if self._name is not None:
-            return self._name
-        return f"Unannotated Cluster {self._id}"
-
-    @name.setter
-    def name(self, value):
-        self._name = value
-
-    @property
-    def description(self):
-        if self._description is not None:
-            return self._description
-        return self.name
-
-    @description.setter
-    def description(self, value):
-        self._description = value
+    def make_metadata(
+        self, key: str, value: Union[pd.DataFrame, pd.Series], name: str = None
+    ):
+        _embedding_id = len(
+            list(
+                filter(
+                    lambda a: a[1].attr_type == AttributeType.EMBEDDING
+                    and int(a[1].id) > 0,
+                    self._mode.o,
+                )
+            )
+        )
+        return LoomXMetadataEmbedding.from_dict(
+            {"id": _embedding_id, "name": key if name is None else name}
+        )
 
 
 class ClusteringAttribute(Attribute):
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        metadata: LoomXMetadataClustering = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
-        self._cluster_ids = sorted(
-            np.unique(self._data.values).astype(int),
-            reverse=False,
-        )
-        self._make_clusters()
+        self._metadata = metadata
 
     def __iter__(self):
         """"""
@@ -1073,9 +1267,47 @@ class ClusteringAttribute(Attribute):
     def __getattribute__(self, name):
         return super().__getattribute__(name)
 
-    def _make_clusters(self):
-        for cluster_id in self._cluster_ids:
-            super().__setattr__(f"cluster_{cluster_id}", Cluster(id=cluster_id))
+    def __repr__(self):
+        return f"""
+{super().__repr__()}
+number of clusters: {len(self._metadata.clusters)}
+        """
+
+    @property
+    def id(self):
+        return self._metadata.id
+
+    @id.setter
+    def id(self, value: int):
+        self._metadata.id = value
+
+    @property
+    def group(self):
+        return self._metadata.group
+
+    @group.setter
+    def group(self, value: str):
+        self._metadata.group = value
+
+    @property
+    def clusters(self):
+        return self._metadata.clusters
+
+    @clusters.setter
+    def clusters(self, value: List[LoomXMetadataCluster]):
+        self._metadata.clusters = value
+
+    @property
+    def clusterMarkerMetrics(self):
+        return self._metadata.clusterMarkerMetrics
+
+    @property
+    def markers(self):
+        return self._metadata.markers
+
+    @property
+    def metadata(self) -> LoomXMetadataClustering:
+        return self._metadata
 
 
 class ClusteringAttributeIterator:
@@ -1090,10 +1322,10 @@ class ClusteringAttributeIterator:
         return self
 
     def __next__(self):
-        if self._n < len(self._attr._cluster_ids):
-            current_key = self._attr._cluster_ids[self._n]
+        if self._n < len(self._attr.clusters):
+            current_key = self._n
             self._n += 1
-            return current_key, self._attr.__getattribute__(f"cluster_{current_key}")
+            return current_key, self._attr.clusters[current_key]
         else:
             raise StopIteration
 
@@ -1103,16 +1335,17 @@ class ObservationClusteringAttributes(ObservationAttributes, ClusteringAttribute
         """"""
         super().__init__(mode=mode, is_proxy=True)
 
-    def __setitem__(self, name: str, value: pd.core.frame.DataFrame):
+    def __setitem__(self, name: str, value: Union[pd.DataFrame, pd.Series]):
         """"""
         self.add(key=name, value=value)
 
     def add(
         self,
         key: str,
-        value: pd.core.frame.DataFrame,
+        value: Union[pd.DataFrame, pd.Series],
         name: str = None,
         description: str = None,
+        metadata: LoomXMetadataClustering = None,
     ):
         super()._validate_key(key=key)
         super()._validate_value(value=value)
@@ -1125,6 +1358,30 @@ class ObservationClusteringAttributes(ObservationAttributes, ClusteringAttribute
             data=value,
             name=name,
             description=description,
+            metadata=self.make_metadata(key=key, value=value, name=name)
+            if metadata is None
+            else metadata,
         )
         self._mode._observation_attrs._add_item(key=key, value=_attr)
         super()._add_item_by_value(value=_attr)
+
+    def make_metadata(self, key: str, value: Union[pd.DataFrame, pd.Series], name: str):
+        _clusters = []
+        for cluster_id in sorted(
+            np.unique(value.values).astype(int),
+            reverse=False,
+        ):
+            _clusters.append(LoomXMetadataCluster(id=cluster_id))
+            super().__setattr__(
+                f"cluster_{cluster_id}", LoomXMetadataCluster(id=cluster_id)
+            )
+        _clustering_id = len(
+            list(
+                filter(
+                    lambda a: a[1].attr_type == AttributeType.CLUSTERING, self._mode.o
+                )
+            )
+        )
+        return LoomXMetadataClustering.from_dict(
+            {"id": _clustering_id, "name": key, "clusters": _clusters}
+        )

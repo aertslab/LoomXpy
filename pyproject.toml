@@ -1,7 +1,7 @@
 [tool]
 [tool.poetry]
 name = "loomxpy"
-version = "0.2.0"
+version = "0.3.0"
 homepage = "https://github.com/aertslab/loomxpy"
 description = "Top-level package for LoomXpy."
 authors = ["Maxime De Waegeneer <mdewaegeneer@gmail.com>"]
@@ -22,22 +22,28 @@ packages = [
     { include = "tests", format = "sdist" }]
 
 [tool.poetry.dependencies]
-python = ">=3.6"
+python = ">=3.7.1"
 click = "*"
+numpy = "^1.20.2"
+pandas = "^1.2.4"
+loompy = "^3.0.6"
+scikit-learn = "^0.24.2"
+pyscenic = "^0.11.1"
+dataclasses-json = "^0.5.3"
 
 [tool.poetry.dev-dependencies]
 bumpversion = "*"
-coverage = "*"
-flake8 = "*"
-invoke = "*"
-isort = "*"
-pylint = "*"
-pytest = "*"
-sphinx = "*"
-tox = "*"
-yapf = "*"
-black = "*"
-mypy = "*"
+coverage = "^4.4.2"
+flake8 = "^3.8.4"
+invoke = "^1.5.0"
+isort = "^4.3.21"
+pylint = "^2.6.2"
+pytest = "^4.6.11"
+tox = "^3.12.1"
+yapf = "^0.30.0"
+black = "^20.8b1"
+mypy = "0.812"
+Sphinx = "^3.5.4"
 
 [tool.poetry.scripts]
 loomxpy = 'loomxpy.cli:main'

@@ -14,7 +14,7 @@ setup(
     description="Python package to create .loom files (compatible with SCope) and extend them with other data (e.g.: SCENIC regulons)",
     long_description=open("README.rst").read(),
     url="https://github.com/aertslab/LoomXpy",
-    version="0.1.0",
+    version="__version__ = '0.3.0'",
     license="MIT",
     author="Maxime De Waegeneer, Kristofer Davie",
     install_requires=read_requirements("requirements.txt"),
