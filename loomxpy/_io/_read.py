@@ -5,7 +5,7 @@ import functools
 import pandas as pd
 import numpy as np
 import loompy as lp
-from typing import NamedTuple, Dict, Union, Tuple
+from typing import Dict, Union, Tuple
 from scipy import sparse
 
 from loomxpy._errors import BadDTypeException
@@ -17,6 +17,9 @@ from loomxpy._specifications.v1.metadata import (
     Cluster as LoomXMetadataV1Cluster,
     GLOBAL_ATTRIBUTE_KEY as GLOBAL_ATTRIBUTE_KEY_V1,
 )
+
+# A list of all versions of the MetaData global attribute
+GLOBAL_ATTRIBUTE_KEY_VX = [GLOBAL_ATTRIBUTE_KEY_V1]
 
 
 def decompress_metadata(metadata: str):
@@ -207,6 +210,11 @@ def _read_scope_rna_loom(loom_connection: lp.LoomConnection, force_conversion: D
     else:
         raise Exception("Unable to detect the LoomX version.")
 
+    print("Adding global attributes...")
+    for global_attr_key in loom_connection.attrs:
+        if global_attr_key in GLOBAL_ATTRIBUTE_KEY_VX:
+            continue
+        _lx.modes.rna.g[global_attr_key] = loom_connection.attrs[global_attr_key]
     return _lx
 
 
@@ -238,7 +246,7 @@ def read_loom(
 
     with lp.connect(filename=file_path, mode="r", validate=False) as loom_connection:
         if any(
-            list(map(lambda x: x in loom_connection.attrs, [GLOBAL_ATTRIBUTE_KEY_V1]))
+            list(map(lambda x: x in loom_connection.attrs, GLOBAL_ATTRIBUTE_KEY_VX))
         ):
             return _read_scope_loom(
                 loom_connection=loom_connection,

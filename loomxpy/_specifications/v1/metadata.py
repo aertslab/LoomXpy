@@ -258,7 +258,7 @@ class Clustering(DataClassJsonMixin):
 
 @dataclass_json
 @dataclass
-class Metadata:
+class Metadata(DataClassJsonMixin):
     metrics: List[Metric]
     annotations: List[Annotation]
     embeddings: List[Embedding]

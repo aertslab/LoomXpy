@@ -52,11 +52,13 @@ class Mode(S7):
         self._mode_type = mode_type
         # Data Matrix
         self._data_matrix = data_matrix
+        # Global
+        self._global_attrs = GlobalAttributes(mode=self)
         # Features
         self._feature_attrs = FeatureAttributes(mode=self)
         self._fa_annotations = FeatureAnnotationAttributes(mode=self)
         self._fa_metrics = FeatureMetricAttributes(mode=self)
-        # # Observations
+        # Observations
         self._observation_attrs = ObservationAttributes(mode=self)
         self._oa_annotations = ObservationAnnotationAttributes(mode=self)
         self._oa_metrics = ObservationMetricAttributes(mode=self)
@@ -66,6 +68,10 @@ class Mode(S7):
     @property
     def X(self):
         return self._data_matrix
+
+    @property
+    def g(self):
+        return self._global_attrs
 
     @property
     def f(self):
@@ -261,12 +267,17 @@ class Mode(S7):
             _col_attrs["Clusterings"] = df_to_named_matrix(
                 df=_clusterings.astype(np.int16)
             )
+
             _global_attrs["MetaData"] = json.dumps(_global_attrs["MetaData"])
 
             if compress_metadata:
                 _global_attrs["MetaData"] = compress_encode(
                     value=_global_attrs["MetaData"]
                 )
+
+            for _ga_key, _ga_value in self._global_attrs:
+                _global_attrs[_ga_key] = _ga_value
+
             lp.create(
                 filename=filename,
                 layers=self._data_matrix._data_matrix.transpose(),
@@ -426,6 +437,89 @@ Got {type(value)} but expecting either:
 ##########################################
 # ATTRIBUTES                             #
 ##########################################
+
+
+class GlobalAttributes(MutableMapping[str, str], metaclass=WithInitHook):
+    def __init__(self, mode: Mode):
+        """"""
+        self._keys: List[str] = []
+        # Implemented modes (used here mainly for typing purposes)
+        self.rna: Mode = mode
+
+    def __setattr__(self, name, value):
+        if not hasattr(self, "_initialized"):
+            if __DEBUG__:
+                print(f"DEBUG: constructor call: set attr with name {name}")
+            super().__setattr__(name, value)
+        else:
+            self.__setitem__(name=name, value=value)
+
+    def __delattr__(self, name: str):
+        self._keys.remove(name)
+        super().__delattr__(name)
+
+    def __iter__(self):
+        """"""
+        return iter(AttributesIterator(self))
+
+    def __len__(self):
+        """"""
+        return len(self._keys)
+
+    def __delitem__(self, name: str) -> None:
+        """"""
+        self.__delattr__(name)
+
+    def __getitem__(self, name: str) -> Mode:
+        """"""
+        return getattr(self, name)
+
+    def __setitem__(self, name: str, value: str) -> None:
+        """"""
+        # FIXME: Fix for editable mode (get called with name=__class__)
+        if name.startswith("__"):
+            return
+
+        if not isinstance(name, str):
+            raise Exception("Not a valid key for GlobalAttribute.")
+
+        if not isinstance(value, str):
+            raise Exception("Not a valid value for GlobalAttribute.")
+
+        self._add_key(key=name)
+        super().__setattr__(name, value)
+
+    def get_attribute(self, key: str):
+        """"""
+        return super().__getattribute__(key)
+
+    def __repr__(self) -> str:
+        _keys = f"{', '.join(self._keys)}" if len(self._keys) > 0 else "none"
+        return f"Global attributes: {_keys}"
+
+    def _add_key(self, key: str):
+        if key not in self._keys:
+            self._keys.append(key)
+
+
+class GlobalAttributesIterator:
+
+    """Class to implement an iterator of Attributes """
+
+    def __init__(self, attrs: GlobalAttributes):
+        self._attrs = attrs
+
+    def __iter__(self):
+        self._n = 0
+        return self
+
+    def __next__(self):
+        if self._n < len(self._attrs._keys):
+            current_key = self._attrs._keys[self._n]
+            self._n += 1
+            return current_key, self._attrs.get_attribute(current_key)
+        else:
+            raise StopIteration
 
 
 class Axis(Enum):
