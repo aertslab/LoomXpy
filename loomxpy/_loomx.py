@@ -1,7 +1,7 @@
 from typing import Tuple
 
-from ._s7 import S7
-from ._mode import Modes
+from loomxpy._s7 import S7
+from loomxpy._mode import Modes
 
 
 class LoomX(S7):
@@ -16,11 +16,11 @@ class LoomX(S7):
         self._observation_attrs = None
 
     @property
-    def active(self):
+    def active(self) -> str:
         return self._active_mode
 
     @active.setter
-    def active(self, value):
+    def active(self, value) -> None:
         self._validate_active_value(value=value)
         self._active_mode = value
         self._data_matrix = self.modes[value].X
@@ -33,10 +33,10 @@ class LoomX(S7):
             raise Exception(
                 "Cannot set an active mode. None has been detected. You can add one using `loomx.modes.<mode-name> = <data-matrix>`."
             )
-        if isinstance(value, str) and value in self.modes:
-            return True
         if isinstance(value, Tuple[str, ...]):
             raise Exception("This is currently not implemented.")
+        if isinstance(value, str) and value in self.modes:
+            return True
         raise Exception(
             f"The mode {value} does not exist. Choose one of: {_mode_keys_str}."
         )
