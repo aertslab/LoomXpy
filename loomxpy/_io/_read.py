@@ -156,8 +156,16 @@ def _read_scope_v1_rna_loom(
             )
 
     # # Add cluster markers
+    _has_markers = False
     clustering_attr: LoomXMetadataV1Clustering
     for _, clustering_attr in _lx.modes.rna.o.clusterings:
+        # Check if any markers exist for the current clustering
+        cluster_marker_ra_prefix = "ClusterMarkers_{clustering_attr.id}"
+        if cluster_marker_ra_prefix not in loom_connection.ra:
+            continue
+
+        _has_markers = True
+
         # Make markers table in long format (cluster, <metrics>)
         markers_df = (
             functools.reduce(
@@ -166,7 +174,7 @@ def _read_scope_v1_rna_loom(
                 ),
                 [
                     pd.DataFrame(
-                        loom_connection.ra.ClusterMarkers_0,
+                        loom_connection.ra[cluster_marker_ra_prefix],
                         index=loom_connection.ra.Gene,
                     )
                     .reset_index()
@@ -176,7 +184,7 @@ def _read_scope_v1_rna_loom(
                 + [
                     pd.DataFrame(
                         loom_connection.ra[
-                            f"ClusterMarkers_{clustering_attr.id}_{metric.accessor}"
+                            f"{cluster_marker_ra_prefix}_{metric.accessor}"
                         ],
                         index=loom_connection.ra.Gene,
                     )
@@ -194,6 +202,9 @@ def _read_scope_v1_rna_loom(
         cluster: LoomXMetadataV1Cluster
         for cluster in clustering_attr.clusters:
             cluster.markers = markers_df.query(f"cluster == '{cluster.id}'")
+
+    if not _has_markers:
+        print("INFO: No markers detected in the loom.")
 
     return _lx
 
