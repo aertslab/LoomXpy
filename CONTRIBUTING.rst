@@ -119,3 +119,14 @@ Then run::
 $ bump2version patch # possible: major / minor / patch
 $ git push
 $ git push --tags
+
+Publish to PyPi
+===============
+
+First build the package,
+
+$ poetry build
+
+And then publish to PyPi
+
+$ poetry publish
