@@ -18,6 +18,7 @@ from loomxpy._specifications import (
     LoomXMetadataEmbedding,
     LoomXMetadataClustering,
     LoomXMetadataCluster,
+    LoomXMetadataClusterMarkerMetric,
 )
 from loomxpy._s7 import S7
 from loomxpy._errors import BadDTypeException
@@ -88,8 +89,38 @@ class Mode(S7):
         title: str = None,
         genome: str = None,
         compress_metadata: bool = False,
+        cluster_marker_metrics: List[LoomXMetadataClusterMarkerMetric] = [
+            {
+                "accessor": "avg_logFC",
+                "name": "Avg. logFC",
+                "description": f"Average log fold change from Wilcoxon test",
+                "threshold": 0,
+                "threshold_method": "lte_or_gte",  # lte, lt, gte, gt, lte_or_gte, lte_and_gte
+            },
+            {
+                "accessor": "pval",
+                "name": "Adjusted P-Value",
+                "description": f"Adjusted P-Value from Wilcoxon test",
+                "threshold": 0.05,
+                "threshold_method": "lte",  # lte, lt, gte, gt, lte_or_gte, lte_and_gte
+            },
+        ],
     ):
+        """
+        Export this LoomX object to Loom file
+
+        Parameters
+        ---------
+        cluster_marker_metrics: dict, optional
+            List of dict (ClusterMarkerMetric) containing metadata of each metric available for the cluster markers.
+            Expects each metric to be of type float.
+        Return
+        ------
+        None
+        """
         if output_format == "scope_v1":
+            #
+            _feature_names = self._data_matrix._feature_names
             # Init
             _row_attrs: MutableMapping = {}
             _col_attrs: MutableMapping = {}
@@ -200,6 +231,8 @@ class Mode(S7):
                         raise Exception(
                             f"The clustering with key '{_attr.key}' does not have a name. This is required when exporting to SCope."
                         )
+
+                    # Clustering
                     _col_name = (
                         _attr.data.columns[0]
                         if isinstance(_attr, pd.DataFrame)
@@ -220,13 +253,183 @@ class Mode(S7):
                         left_index=True,
                         right_index=True,
                     )
-                    _global_attrs["MetaData"]["clusterings"].append(
-                        LoomXMetadataClustering.from_dict(
-                            {"id": _clustering_id, **_attr.metadata.to_dict()}
-                        ).to_dict()
+                    _clustering_md = LoomXMetadataClustering.from_dict(
+                        {
+                            "id": _clustering_id,
+                            **_attr.metadata.to_dict(),
+                        }
+                    ).to_dict()
+
+                    # Markers
+                    # Dictionary of DataFrame (value) containing the the values of the different metric (key) across features (rows) and for each cluster (columns)
+                    _cluster_markers_dict = {}
+
+                    if cluster_marker_metrics:
+
+                        # Init DataFrame mask of genes representing markers
+                        cluster_markers = pd.DataFrame(
+                            index=_feature_names,
+                            columns=[str(x.id) for x in _attr._metadata.clusters],
+                        ).fillna(0, inplace=False)
+
+                        # Init DataFrame containing metric valuess
+                        _cluster_marker_metric: LoomXMetadataClusterMarkerMetric
+                        for _cluster_marker_metric in cluster_marker_metrics:
+                            _cluster_markers_dict[
+                                _cluster_marker_metric["accessor"]
+                            ] = pd.DataFrame(
+                                index=_feature_names,
+                                columns=[str(x.id) for x in _attr._metadata.clusters],
+                            ).fillna(
+                                0, inplace=False
+                            )
+
+                        _cluster: LoomXMetadataCluster
+                        for _cluster in _attr._metadata.clusters:
+                            _features_df = pd.Series(
+                                _cluster.markers.index.values,
+                                index=_cluster.markers.index.values,
+                            )
+
+                            # Dictionary of Series (value) containing the values of the different metric (key) for the current cluster
+                            _cluster_marker_metric_values_dict = {}
+                            # Dictionary of Series (value) containing a boolean mask of the features that pass the filter criteria for the different metrics (key)
+                            _cluster_marker_metric_masks_dict = {}
+
+                            _cluster_marker_metric: LoomXMetadataClusterMarkerMetric
+                            for _cluster_marker_metric in cluster_marker_metrics:
+
+                                # Check if metric exists in markers table
+                                if (
+                                    _cluster_marker_metric["accessor"]
+                                    not in _cluster.markers.columns
+                                ):
+                                    raise Exception(
+                                        f"The cluster_marker_metrics argument was not properly defined. Missing {_cluster_marker_metric['accessor']} metric in the markers table. Available columns in markers table are f{''.join(_cluster.markers.columns)}."
+                                    )
+
+                                cluster_marker_metric_values = pd.Series(
+                                    _cluster.markers[
+                                        _cluster_marker_metric["accessor"]
+                                    ].values,
+                                    index=_cluster.markers.index.values,
+                                ).astype(float)
+
+                                if pd.isnull(cluster_marker_metric_values).any():
+                                    raise Exception(
+                                        f"NaN detected in {_cluster_marker_metric['accessor']} metric column of the markers table"
+                                    )
+
+                                if _cluster_marker_metric["threshold_method"] == "lte":
+                                    feature_mask = (
+                                        cluster_marker_metric_values
+                                        < _cluster_marker_metric["threshold"]
+                                    )
+                                elif _cluster_marker_metric["threshold_method"] == "lt":
+                                    feature_mask = (
+                                        cluster_marker_metric_values
+                                        <= _cluster_marker_metric["threshold"]
+                                    )
+                                elif (
+                                    _cluster_marker_metric["threshold_method"]
+                                    == "lte_or_gte"
+                                ):
+                                    feature_mask = np.logical_and(
+                                        np.logical_or(
+                                            cluster_marker_metric_values
+                                            >= _cluster_marker_metric["threshold"],
+                                            cluster_marker_metric_values
+                                            <= -_cluster_marker_metric["threshold"],
+                                        ),
+                                        np.isfinite(cluster_marker_metric_values),
+                                    )
+                                else:
+                                    raise Exception(
+                                        "The given threshold method is not implemented"
+                                    )
+                                _cluster_marker_metric_masks_dict[
+                                    _cluster_marker_metric["accessor"]
+                                ] = feature_mask
+                                _cluster_marker_metric_values_dict[
+                                    _cluster_marker_metric["accessor"]
+                                ] = cluster_marker_metric_values
+
+                            # Create a new cluster marker mask based on all feature mask generated using each metric
+                            cluster_marker_metrics_mask = np.logical_or.reduce(
+                                [
+                                    v
+                                    for _, v in _cluster_marker_metric_masks_dict.items()
+                                ]
+                            )
+
+                            marker_names = _features_df[cluster_marker_metrics_mask]
+
+                            # Get a marker mask along all features in the matrix
+                            marker_genes_along_data_mask = np.in1d(
+                                _feature_names, marker_names
+                            )
+                            marker_genes_along_data = cluster_markers.index[
+                                marker_genes_along_data_mask
+                            ]
+
+                            # Populate the marker mask
+                            markers_df = pd.DataFrame(
+                                1, index=marker_names, columns=["is_marker"]
+                            )
+                            cluster_markers.loc[
+                                marker_genes_along_data_mask, str(_cluster.id)
+                            ] = markers_df["is_marker"][marker_genes_along_data]
+
+                            if pd.isnull(cluster_markers[str(_cluster.id)]).any():
+                                raise Exception(
+                                    f"NaN detected in markers DataFrame of cluster {_cluster.id}."
+                                )
+
+                            # Populate the marker nmetrics
+                            for _cluster_marker_metric in _cluster_markers_dict.keys():
+                                _metric_df = pd.DataFrame(
+                                    _cluster_marker_metric_values_dict[
+                                        _cluster_marker_metric
+                                    ][cluster_marker_metrics_mask],
+                                    index=marker_names,
+                                    columns=[_cluster_marker_metric],
+                                )
+                                _cluster_markers_dict[_cluster_marker_metric].loc[
+                                    marker_genes_along_data_mask, str(_cluster.id)
+                                ] = _metric_df[_cluster_marker_metric][
+                                    marker_genes_along_data
+                                ]
+
+                                if pd.isnull(
+                                    _cluster_markers_dict[_cluster_marker_metric][
+                                        str(_cluster.id)
+                                    ]
+                                ).any():
+                                    raise Exception(
+                                        f"NaN detected in markers metric {_cluster_marker_metric['accessor']} DataFrame of cluster {_cluster.id}."
+                                    )
+
+                        # Add the required global metadata for markes to be visualized in SCope
+                        # Encapsule with mixin to avoid properties not required by gRPC
+                        _clustering_md["clusterMarkerMetrics"] = [
+                            LoomXMetadataClusterMarkerMetric.from_dict(cmm).to_dict()
+                            for cmm in cluster_marker_metrics
+                        ]
+
+                    _global_attrs["MetaData"]["clusterings"].append(_clustering_md)
+
+                # Convert all markers related data to Loom compliant format
+                _row_attrs[
+                    f"ClusterMarkers_{str(_clustering_id)}"
+                ] = df_to_named_matrix(cluster_markers)
+                for _cluster_marker_metric in _cluster_markers_dict.keys():
+                    _row_attrs[
+                        f"ClusterMarkers_{str(_clustering_id)}_{_cluster_marker_metric}"
+                    ] = df_to_named_matrix(
+                        _cluster_markers_dict[_cluster_marker_metric].astype(float)
                     )
 
-            _row_attrs["Gene"] = np.asarray(self._data_matrix._feature_names)
+            _row_attrs["Gene"] = np.asarray(_feature_names)
             _col_attrs["CellID"] = np.asarray(self._data_matrix._observation_names)
 
             # If no default embedding, use the first embedding as default
@@ -399,7 +602,7 @@ Got {type(value)} but expecting either:
         # FIXME: Fix for editable mode (get called with name=__class__)
         if name.startswith("__"):
             return
-        print(f"INFO: adding new {name} mode")
+        print(f"INFO: Adding new {name} mode")
         _key = self._validate_key(key=name)
         Modes._validate_value(value=value)
 
@@ -1189,7 +1392,7 @@ class EmbeddingAttribute(Attribute):
             _projection_method = "n.a."
         return f"""
 {super().__repr__()}
-default: {self._metadata._default}
+default: {self._metadata.default}
 projection method: {_projection_method}
         """
 

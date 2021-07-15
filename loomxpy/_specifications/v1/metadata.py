@@ -142,10 +142,31 @@ class CellTypeAnnotation:
 
 @dataclass_json
 @dataclass
-class ClusterMarkerMetric:
-    accessor: str
-    name: str
-    description: str
+class ClusterMarkerMetric(DataClassJsonMixin):
+    _accessor: str = field(default=None, metadata=config(field_name="accessor"))
+    _name: str = field(default=None, metadata=config(field_name="name"))
+    _description: str = field(default=None, metadata=config(field_name="description"))
+    # Attributes exluded from the metadata
+    _threshold: Optional[float] = field(
+        default=None,
+        metadata=config(field_name="threshold", exclude=cfg.Exclude.ALWAYS),
+    )
+    _threshold_method: Optional[str] = field(
+        default=None,
+        metadata=config(field_name="threshold_method", exclude=cfg.Exclude.ALWAYS),
+    )
+
+    @property
+    def accessor(self) -> str:
+        return self._accessor
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def description(self) -> str:
+        return self._description
 
 
 @dataclass_json

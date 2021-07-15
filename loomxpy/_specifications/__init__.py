@@ -5,4 +5,5 @@ from .v1.metadata import (
     Cluster as LoomXMetadataCluster,
     Embedding as LoomXMetadataEmbedding,
     ProjectionMethod as ProjectionMethod,
+    ClusterMarkerMetric as LoomXMetadataClusterMarkerMetric,
 )
