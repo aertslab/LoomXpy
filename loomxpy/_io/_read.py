@@ -12,6 +12,7 @@ from loomxpy._errors import BadDTypeException
 from loomxpy._loomx import LoomX
 from loomxpy._mode import Mode, ModeType
 from loomxpy._specifications.v1.metadata import (
+    Embedding,
     Metadata as LoomXMetadataV1,
     Clustering as LoomXMetadataV1Clustering,
     Cluster as LoomXMetadataV1Cluster,
@@ -76,7 +77,7 @@ def _read_scope_v1_rna_loom(
     # Create the LoomX in-memory object
     ## Add the expression matrix in the RNA mode
     _lx = LoomX()
-    print("Adding data matrix...")
+    print("INFO: Adding data matrix...")
     _lx.modes.rna = (
         sparse.csr_matrix(_matrix).transpose(),
         loom_connection.ra["Gene"],
@@ -85,7 +86,7 @@ def _read_scope_v1_rna_loom(
     ## Add observation (o) attributes
     ### Add annotations
     try:
-        print("Adding annotations...")
+        print("INFO: Adding annotations...")
         for annotation in metadata.annotations:
             _lx.modes.rna.o.annotations.add(
                 key=annotation.name,
@@ -105,7 +106,7 @@ def _read_scope_v1_rna_loom(
         )
     ### Add metrics
     try:
-        print("Adding metrics...")
+        print("INFO: Adding metrics...")
         for metric in metadata.metrics:
             _lx.modes.rna.o.metrics.add(
                 key=metric.name,
@@ -125,7 +126,7 @@ def _read_scope_v1_rna_loom(
         )
     ### Add embeddings
     if "Embeddings_X" in loom_connection.ca and "Embeddings_Y" in loom_connection.ca:
-        print("Adding embeddings...")
+        print("INFO: Adding embeddings...")
         for embedding in metadata.embeddings:
             _embedding_df = pd.DataFrame(
                 {
@@ -140,9 +141,29 @@ def _read_scope_v1_rna_loom(
                 name=embedding.name,
                 metadata=embedding,
             )
+
+    if "Embedding" in loom_connection.ca:
+        print("INFO: Adding default embedding...")
+        embedding = list(filter(lambda x: int(x.id) == -1, metadata.embeddings))
+        if len(embedding) == 0:
+            raise Exception(
+                "Corrupted LoomX MetaData: missing metadata about default embedding."
+            )
+        embedding: Embedding
+        embedding = embedding[0]
+        _lx.modes.rna.o.embeddings.add(
+            key=embedding.name,
+            value=pd.DataFrame(
+                loom_connection.ca["Embedding"],
+                index=_lx.modes.rna.X._observation_names,
+            ),
+            name=embedding.name,
+            metadata=embedding,
+        )
+
     ## Add clusterings
     if "Clusterings" in loom_connection.ca:
-        print("Adding clusterings...")
+        print("INFO: Adding clusterings...")
         for clustering in metadata.clusterings:
             _lx.modes.rna.o.clusterings.add(
                 key=clustering.name,
@@ -209,7 +230,6 @@ def _read_scope_v1_rna_loom(
 
     if not _has_markers:
         print("INFO: No markers detected in the loom.")
-
     return _lx
 
 
@@ -225,11 +245,12 @@ def _read_scope_rna_loom(loom_connection: lp.LoomConnection, force_conversion: D
     else:
         raise Exception("Unable to detect the LoomX version.")
 
-    print("Adding global attributes...")
+    print("INFO: Adding global attributes...")
     for global_attr_key in loom_connection.attrs:
         if global_attr_key in GLOBAL_ATTRIBUTE_KEY_VX:
             continue
         _lx.modes.rna.g[global_attr_key] = loom_connection.attrs[global_attr_key]
+    print("INFO: Done.")
     return _lx
 
 
