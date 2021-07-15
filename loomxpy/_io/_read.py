@@ -160,9 +160,13 @@ def _read_scope_v1_rna_loom(
     clustering_attr: LoomXMetadataV1Clustering
     for _, clustering_attr in _lx.modes.rna.o.clusterings:
         # Check if any markers exist for the current clustering
-        cluster_marker_ra_prefix = "ClusterMarkers_{clustering_attr.id}"
+        cluster_marker_ra_prefix = f"ClusterMarkers_{clustering_attr.id}"
         if cluster_marker_ra_prefix not in loom_connection.ra:
             continue
+
+        print(
+            f"INFO: Adding cluster markers for clustering {clustering_attr.name} ({clustering_attr.id})"
+        )
 
         _has_markers = True
 
