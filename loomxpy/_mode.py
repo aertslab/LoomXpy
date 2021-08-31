@@ -236,7 +236,7 @@ class Mode(S7):
                     _col_name = (
                         _attr.data.columns[0]
                         if isinstance(_attr, pd.DataFrame)
-                        else _attr.data.name
+                        else _attr.name
                     )
                     _num_clusterings = len(_global_attrs["MetaData"]["clusterings"])
                     _clustering_id = (
@@ -266,6 +266,13 @@ class Mode(S7):
 
                     if cluster_marker_metrics:
 
+                        has_cluster_markers = [
+                            cluster.markers is not None
+                            for cluster in _attr._metadata.clusters
+                        ]
+                        if not all(has_cluster_markers):
+                            continue
+
                         # Init DataFrame mask of genes representing markers
                         cluster_markers = pd.DataFrame(
                             index=_feature_names,
@@ -286,6 +293,7 @@ class Mode(S7):
 
                         _cluster: LoomXMetadataCluster
                         for _cluster in _attr._metadata.clusters:
+
                             _features_df = pd.Series(
                                 _cluster.markers.index.values,
                                 index=_cluster.markers.index.values,
@@ -411,6 +419,7 @@ class Mode(S7):
 
                         # Add the required global metadata for markes to be visualized in SCope
                         # Encapsule with mixin to avoid properties not required by gRPC
+
                         _clustering_md["clusterMarkerMetrics"] = [
                             LoomXMetadataClusterMarkerMetric.from_dict(cmm).to_dict()
                             for cmm in cluster_marker_metrics
@@ -418,16 +427,17 @@ class Mode(S7):
 
                     _global_attrs["MetaData"]["clusterings"].append(_clustering_md)
 
-                # Convert all markers related data to Loom compliant format
-                _row_attrs[
-                    f"ClusterMarkers_{str(_clustering_id)}"
-                ] = df_to_named_matrix(cluster_markers)
-                for _cluster_marker_metric in _cluster_markers_dict.keys():
+                    # Convert all markers related data to Loom compliant format
                     _row_attrs[
-                        f"ClusterMarkers_{str(_clustering_id)}_{_cluster_marker_metric}"
-                    ] = df_to_named_matrix(
-                        _cluster_markers_dict[_cluster_marker_metric].astype(float)
-                    )
+                        f"ClusterMarkers_{str(_clustering_id)}"
+                    ] = df_to_named_matrix(cluster_markers)
+
+                    for _cluster_marker_metric in _cluster_markers_dict.keys():
+                        _row_attrs[
+                            f"ClusterMarkers_{str(_clustering_id)}_{_cluster_marker_metric}"
+                        ] = df_to_named_matrix(
+                            _cluster_markers_dict[_cluster_marker_metric].astype(float)
+                        )
 
             _row_attrs["Gene"] = np.asarray(_feature_names)
             _col_attrs["CellID"] = np.asarray(self._data_matrix._observation_names)
@@ -1200,7 +1210,7 @@ class ObservationAttributes(Attributes):
 
         # Check if all observations from the given value are present in the DataMatrix of this mode
         _observations = self._mode.X._observation_names
-        if not all(np.in1d(value.index.astype(str), _observations)):
+        if not all(np.in1d(value.index, _observations)):
             raise Exception(
                 f"Cannot add attribute of type {type(value).__name__} to {type(self).__name__}. Index of the given pandas.core.frame.DataFrame does not fully match the observations in DataMatrix of mode."
             )
@@ -1559,7 +1569,7 @@ class ObservationClusteringAttributes(ObservationAttributes, ClusteringAttribute
             attr_type=self._attr_type,
             axis=self._axis,
             data=value,
-            name=name,
+            name=key if name is None else name,
             description=description,
             metadata=self.make_metadata(key=key, value=value, name=name)
             if metadata is None
@@ -1574,10 +1584,7 @@ class ObservationClusteringAttributes(ObservationAttributes, ClusteringAttribute
             np.unique(value.values).astype(int),
             reverse=False,
         ):
-            _clusters.append(LoomXMetadataCluster(id=cluster_id))
-            super().__setattr__(
-                f"cluster_{cluster_id}", LoomXMetadataCluster(id=cluster_id)
-            )
+            _clusters.append(LoomXMetadataCluster.from_dict({"id": int(cluster_id)}))
         _clustering_id = len(
             list(
                 filter(
@@ -1586,5 +1593,5 @@ class ObservationClusteringAttributes(ObservationAttributes, ClusteringAttribute
             )
         )
         return LoomXMetadataClustering.from_dict(
-            {"id": _clustering_id, "name": key, "clusters": _clusters}
+            {"id": _clustering_id, "name": key, "group": "n.a.", "clusters": _clusters}
         )
