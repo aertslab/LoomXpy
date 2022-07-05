@@ -4,4 +4,4 @@ numpy
 pandas
 pyscenic
 scikit-learn>=0.22.2
-
+ctxcore

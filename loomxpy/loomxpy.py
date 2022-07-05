@@ -6,7 +6,7 @@ import pandas as pd
 import loompy as lp
 from sklearn.manifold import TSNE
 from pyscenic.aucell import aucell
-from pyscenic.genesig import Regulon, GeneSignature
+from ctxcore.genesig import Regulon, GeneSignature
 from typing import List, Mapping, Sequence, Optional, Dict
 from operator import attrgetter
 from multiprocessing import cpu_count
